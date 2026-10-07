@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\App\Pages;
 
 use App\Models\Team;
+use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
@@ -19,6 +20,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Liberu\Foundation\Organizations\Models\Team as FoundationTeam;
 
 /**
  * First-use setup for a team. Integration credentials are team-scoped and
@@ -143,8 +145,8 @@ class AccountSetupWizard extends Page
 
     public function save(): void
     {
-        $state = $this->form->getState();
         $team = $this->team();
+        $state = $this->form->getState();
         $existingIntegrations = is_array($team->accounting_setup['integrations'] ?? null)
             ? $team->accounting_setup['integrations']
             : [];
@@ -221,7 +223,10 @@ class AccountSetupWizard extends Page
 
     private function team(): Team
     {
-        $team = Filament::getTenant() ?? Auth::user()?->currentTeam;
+        $selected = Filament::getTenant() ?? Auth::user()?->currentTeam;
+        $user = Auth::user();
+        abort_unless($user instanceof User && ($selected instanceof Team || $selected instanceof FoundationTeam), 403);
+        $team = Team::where('user_id', $user->getAuthIdentifier())->find($selected->getKey());
         abort_unless($team instanceof Team, 403);
 
         return $team;

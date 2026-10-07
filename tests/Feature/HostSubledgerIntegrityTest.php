@@ -143,7 +143,7 @@ it('converts one accepted estimate to an owned invoice with matching lines and t
     $rate = new TaxRate(['name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
     $rate->team_id = $this->subledgerTeam->id;
     $rate->save();
-    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted', 'tax_rate_id' => $taxMode === 'document' ? $rate->getKey() : null]);
+    $estimate = Estimate::create(['total_amount' => 0, 'team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted', 'tax_rate_id' => $taxMode === 'document' ? $rate->getKey() : null]);
     $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 2, 'unit_price' => 100, 'tax_rate_id' => $taxMode === 'line' ? $rate->getKey() : null]);
     $estimate->refresh();
     $staleCopy = Estimate::findOrFail($estimate->getKey());
@@ -162,7 +162,7 @@ it('converts one accepted estimate to an owned invoice with matching lines and t
 
 it('rejects estimate conversion before acceptance and without invoiceable line items', function (): void {
     $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
-    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07']);
+    $estimate = Estimate::create(['total_amount' => 0, 'team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07']);
     expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'Only accepted estimates');
     $estimate->accept();
     expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'requires line items');
@@ -171,7 +171,7 @@ it('rejects estimate conversion before acceptance and without invoiceable line i
 
 it('rolls estimate conversion back when the accepted totals do not match the copied invoice', function (): void {
     $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
-    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
+    $estimate = Estimate::create(['total_amount' => 0, 'team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
     $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 1, 'unit_price' => 100]);
     $estimate->update(['total_amount' => 999]);
     expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'totals must match');
@@ -182,7 +182,7 @@ it('rejects an estimate linked to a customer owned by another company', function
     $other = User::factory()->create();
     $otherTeam = app(TeamManagementService::class)->createPersonalTeamForUser($other);
     $customer = Customer::factory()->create(['team_id' => $otherTeam->id]);
-    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
+    $estimate = Estimate::create(['total_amount' => 0, 'team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
     $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 1, 'unit_price' => 100]);
     expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'same company');
     expect(Invoice::count())->toBe(0);
@@ -190,7 +190,7 @@ it('rejects an estimate linked to a customer owned by another company', function
 
 it('keeps estimate response timestamps and expiration behavior consistent', function (): void {
     $this->travelTo(now()->setDate(2026, 10, 7)->startOfDay());
-    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => Customer::factory()->create()->id, 'estimate_date' => '2026-10-07', 'expiration_date' => '2026-10-10']);
+    $estimate = Estimate::create(['total_amount' => 0, 'team_id' => $this->subledgerTeam->id, 'customer_id' => Customer::factory()->create()->id, 'estimate_date' => '2026-10-07', 'expiration_date' => '2026-10-10']);
     expect($estimate->is_expired)->toBeFalse()->and($estimate->days_until_expiration)->toEqual(3);
     $estimate->markAsSent();
     expect($estimate->sent_at)->not->toBeNull()->and($estimate->status)->toBe('sent');
