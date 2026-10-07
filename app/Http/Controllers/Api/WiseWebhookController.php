@@ -23,7 +23,7 @@ class WiseWebhookController extends Controller
         try {
             $rawBody = $request->getContent();
             $signature = $request->header('X-Signature-SHA256', '');
-            $publicKey = config('services.wise.webhook_public_key', '');
+            $publicKey = (string) (config('services.wise.webhook_public_key') ?? '');
 
             if (! $this->wiseService->verifyWebhookSignature($rawBody, $signature, $publicKey)) {
                 Log::warning('Wise webhook signature verification failed', [

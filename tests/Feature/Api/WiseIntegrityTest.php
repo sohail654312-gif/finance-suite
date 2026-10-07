@@ -205,6 +205,16 @@ it('rejects unsigned Wise webhooks before recording provider events', function (
     expect(Transaction::count())->toBe(0);
 });
 
+it('rejects Wise webhooks cleanly when no public key or provider credentials are configured', function (): void {
+    app()->forgetInstance(WiseService::class);
+    config()->set('services.wise.webhook_public_key', null);
+    config()->set('services.wise.client_id', null);
+    config()->set('services.wise.client_secret', null);
+    $this->postJson('/api/webhooks/wise', ['event_type' => 'transfers#state-change'])->assertUnauthorized();
+    expect(Transaction::count())->toBe(0);
+    Http::assertNothingSent();
+});
+
 it('records signed Wise notifications without pretending to update the ledger', function (string $event, string $message): void {
     $this->wiseService->shouldReceive('verifyWebhookSignature')->once()->andReturnTrue();
     Log::spy();
