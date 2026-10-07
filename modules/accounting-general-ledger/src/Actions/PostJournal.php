@@ -16,7 +16,7 @@ final class PostJournal
     public function handle(JournalEntry $journal, ?string $actor = null): JournalEntry
     {
         return DB::transaction(function () use ($journal, $actor): JournalEntry {
-            $journal = JournalEntry::whereKey($journal->getKey())->firstOrFail();
+            $journal = JournalEntry::whereKey($journal->getKey())->lockForUpdate()->firstOrFail();
             $journal->load('lines.account');
             if ($journal->status !== JournalStatus::Draft) {
                 throw new InvalidJournal('Only draft journals may be posted.');
@@ -27,6 +27,9 @@ final class PostJournal
             foreach ($journal->lines as $line) {
                 /** @var JournalLine $line */
                 $account = $line->account()->lockForUpdate()->firstOrFail();
+                if ((string) $account->legal_entity_id !== (string) $journal->book->legal_entity_id) {
+                    throw new InvalidJournal('Every journal account must belong to the book legal entity.');
+                }
                 if (! $account->is_active || ! $account->allow_manual_entry) {
                     throw new InvalidJournal('Every journal account must be active and permit manual entries.');
                 }

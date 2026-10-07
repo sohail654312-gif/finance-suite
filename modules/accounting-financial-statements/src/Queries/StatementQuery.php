@@ -135,7 +135,7 @@ final class StatementQuery
             ->join('accounting_journal_entries as j', 'j.id', '=', 'l.journal_entry_id')
             ->join('accounting_chart_accounts as a', 'a.id', '=', 'l.account_id')
             ->where('j.book_id', $bookId)
-            ->where('j.status', 'posted')
+            ->whereIn('j.status', ['posted', 'reversed'])
             ->whereDate('j.entry_date', '<=', $end)
             ->when($start, fn (Builder $builder): Builder => $builder->whereDate('j.entry_date', '>=', $start));
 
