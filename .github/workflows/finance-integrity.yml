@@ -49,6 +49,7 @@ jobs:
           tests/Feature/HostIdentityIntegrityTest.php
           tests/Feature/HostSubledgerIntegrityTest.php
           tests/Feature/HostBankFeedIntegrityTest.php
+          tests/Feature/HostModuleIntegrityTest.php
           tests/Feature/Api/WiseIntegrityTest.php
           tests/Feature/AccountSetupWizardTest.php
           tests/Unit/HostCoverageGateTest.php tests/Unit/Services/GeneralLedgerServiceTest.php

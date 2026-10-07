@@ -91,13 +91,16 @@ it('imports an exact signed amount idempotently without posting or reconciling t
 });
 
 it('retains reconciled feed records on repeat and rejects a changed amount atomically', function (): void {
-    Http::fake(['feed.example.test/*' => Http::response(['transactions' => [$this->feedRow]])]);
+    Http::fakeSequence('feed.example.test/*')
+        ->push(['transactions' => [$this->feedRow]])
+        ->push(['transactions' => [$this->feedRow]])
+        ->push(['transactions' => [array_replace($this->feedRow, ['amount' => '-26.00'])]]);
     $service = app(BankFeedService::class);
     $service->importTransactions($this->feedConnection);
     Transaction::sole()->update(['reconciled' => true]);
     $service->importTransactions($this->feedConnection);
-    Http::fake(['feed.example.test/*' => Http::response(['transactions' => [array_replace($this->feedRow, ['amount' => '-26.00'])]])]);
     expect(fn () => $service->importTransactions($this->feedConnection))->toThrow(LogicException::class, 'require review');
+    Http::assertSentCount(3);
     expect(Transaction::sole()->reconciled)->toBeTrue()->and(Transaction::sole()->amount)->toBe('-25.50')
         ->and(BankFeedTransaction::sole()->raw_data['amount'])->toBe('-25.50');
 });
