@@ -81,6 +81,6 @@ class Budget extends Model
             $query->where('project_id', $this->project_id);
         }
 
-        return $query->sum('amount');
+        return (float) $query->sum('amount');
     }
 }

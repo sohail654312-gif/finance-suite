@@ -68,10 +68,11 @@ jobs:
       # The threshold measures all app/ host code. Package
       # coverage is each package's own gate, against its own phpunit.xml (§3.10).
       - name: Run tests with coverage
+        id: host_tests
         run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml
 
       - name: Verify host coverage independently
-        if: always() && hashFiles('coverage.xml') != ''
+        if: always() && steps.host_tests.outcome != 'skipped'
         run: php scripts/verify-host-coverage.php coverage.xml
 
       - name: Preserve coverage evidence

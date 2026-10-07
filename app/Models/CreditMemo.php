@@ -102,7 +102,10 @@ class CreditMemo extends Model implements Documentable
     public function calculateTax()
     {
         if (! $this->taxRate) {
-            return 0;
+            $this->tax_amount = $this->items()->sum('tax_amount');
+            $this->total_amount = $this->subtotal_amount + $this->tax_amount;
+
+            return (float) $this->tax_amount;
         }
 
         $baseAmount = $this->subtotal_amount;
@@ -128,7 +131,7 @@ class CreditMemo extends Model implements Documentable
 
     public function calculateTotals(): void
     {
-        $this->subtotal_amount = $this->items->sum('amount');
+        $this->subtotal_amount = $this->items()->sum('amount');
         $this->calculateTax();
         $this->save();
     }

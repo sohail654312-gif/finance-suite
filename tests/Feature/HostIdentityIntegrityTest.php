@@ -14,6 +14,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Validation\UncompromisedVerifier;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -24,14 +25,20 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Jetstream\Mail\TeamInvitation;
 use Spatie\Permission\Models\Role;
 
+beforeEach(function (): void {
+    $verifier = Mockery::mock(UncompromisedVerifier::class);
+    $verifier->shouldReceive('verify')->andReturnTrue();
+    app()->instance(UncompromisedVerifier::class, $verifier);
+});
+
 it('registers into an owned company without joining the first existing company or leaking role context', function (): void {
     $owner = User::factory()->create();
     $existingTeam = app(TeamManagementService::class)->createPersonalTeamForUser($owner);
     Role::create(['name' => 'tenant', 'guard_name' => 'web', 'team_id' => null]);
     setPermissionsTeamId($existingTeam->id);
-    $user = app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'role' => 'tenant']);
+    $user = app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']);
 
-    expect(Hash::check('synthetic-password-42', $user->password))->toBeTrue()
+    expect(Hash::check('Synthetic-Password-42!', $user->password))->toBeTrue()
         ->and($user->currentTeam->user_id)->toBe($user->id)
         ->and($user->belongsToTeam($existingTeam))->toBeFalse()
         ->and(getPermissionsTeamId())->toBe($existingTeam->id);
@@ -39,30 +46,61 @@ it('registers into an owned company without joining the first existing company o
 });
 
 it('rolls registration back when an allowed role is not configured', function (): void {
-    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'role' => 'tenant']))
+    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))
         ->toThrow(Exception::class, 'Invalid role specified');
     $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
     expect(Team::count())->toBe(0)->and(getPermissionsTeamId())->toBeNull();
 });
 
 it('rejects privileged caller-selected registration roles before creating a user', function (): void {
-    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'role' => 'super_admin']))
+    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'super_admin']))
         ->toThrow(ValidationException::class);
     $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
 });
 
+it('rejects a breached password through the configured verification contract', function (): void {
+    $verifier = Mockery::mock(UncompromisedVerifier::class);
+    $verifier->shouldReceive('verify')->andReturnFalse();
+    app()->instance(UncompromisedVerifier::class, $verifier);
+    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))->toThrow(ValidationException::class);
+    $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
+});
+
+it('permits company access for owners and members while denying strangers and unrelated model IDs', function (): void {
+    $owner = User::factory()->create();
+    $team = app(TeamManagementService::class)->createPersonalTeamForUser($owner);
+    $member = User::factory()->create();
+    $stranger = User::factory()->create();
+    $team->users()->attach($member, ['role' => 'editor']);
+    foreach (['update', 'delete', 'addTeamMember', 'updateTeamMember', 'removeTeamMember'] as $ability) {
+        expect($owner->can($ability, $team))->toBeTrue()
+            ->and($member->can($ability, $team))->toBeFalse()
+            ->and($stranger->can($ability, $team))->toBeFalse();
+    }
+    expect($owner->can('view', $team))->toBeTrue()
+        ->and($member->can('view', $team))->toBeTrue()
+        ->and($stranger->can('view', $team))->toBeFalse()
+        ->and($owner->can('viewAny', Team::class))->toBeTrue()
+        ->and($owner->can('create', Team::class))->toBeTrue()
+        ->and($owner->canAccessTenant($team))->toBeTrue()
+        ->and($member->canAccessTenant($team))->toBeTrue()
+        ->and($stranger->canAccessTenant($team))->toBeFalse()
+        ->and($owner->canAccessTenant($owner))->toBeFalse();
+});
+
 it('creates an isolated personal team through the alternate registration action', function (): void {
-    $user = app(CreateNewUserWithTeams::class)->create(['name' => 'Preview Accountant', 'email' => 'preview@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'terms' => '1']);
+    $user = app(CreateNewUserWithTeams::class)->create(['name' => 'Preview Accountant', 'email' => 'preview@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'terms' => '1']);
     expect($user->fresh()->currentTeam->user_id)->toBe($user->id)
         ->and($user->ownedTeams()->count())->toBe(1)
-        ->and(Hash::check('synthetic-password-42', $user->password))->toBeTrue();
+        ->and(Hash::check('Synthetic-Password-42!', $user->password))->toBeTrue();
 });
 
 it('reports registration storage failures without logging SQL bindings or passwords', function (string $failure, int $code, string $expectedMessage): void {
-    $error = new QueryException('sqlite', 'insert into users values (?)', ['synthetic-password-42'], new PDOException($failure, $code));
-    DB::partialMock()->shouldReceive('transaction')->once()->andThrow($error);
+    $error = new QueryException('sqlite', 'insert into users values (?)', ['Synthetic-Password-42!'], new PDOException($failure, $code));
+    DB::swap(Mockery::mock(DB::getFacadeRoot()));
+    DB::shouldReceive('transaction')->once()->andThrow($error);
     Log::spy();
-    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'role' => 'tenant']))
+    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))
         ->toThrow(Exception::class, $expectedMessage);
     Log::shouldHaveReceived('error')->once()->with('Database error during user creation', ['code' => $code]);
 })->with([
@@ -73,30 +111,31 @@ it('reports registration storage failures without logging SQL bindings or passwo
 ]);
 
 it('rolls back unexpected registration errors and restores the permission context', function (): void {
-    DB::partialMock()->shouldReceive('transaction')->once()->andThrow(new RuntimeException('private storage detail'));
-    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'synthetic-password-42', 'password_confirmation' => 'synthetic-password-42', 'role' => 'tenant']))
+    DB::swap(Mockery::mock(DB::getFacadeRoot()));
+    DB::shouldReceive('transaction')->once()->andThrow(new RuntimeException('private storage detail'));
+    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))
         ->toThrow(Exception::class, 'An unexpected error occurred');
     $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
     expect(getPermissionsTeamId())->toBeNull();
 });
 
 it('resets a forgotten password and rejects mismatched confirmation', function (): void {
-    $user = User::factory()->create(['password' => Hash::make('old-password-42')]);
+    $user = User::factory()->create(['password' => Hash::make('Old-Password-42!')]);
     $action = app(ResetUserPassword::class);
-    expect(fn () => $action->reset($user, ['password' => 'new-password-42', 'password_confirmation' => 'different-password-42']))->toThrow(ValidationException::class);
-    expect(Hash::check('old-password-42', $user->fresh()->password))->toBeTrue();
-    $action->reset($user, ['password' => 'new-password-42', 'password_confirmation' => 'new-password-42']);
-    expect(Hash::check('new-password-42', $user->fresh()->password))->toBeTrue();
+    expect(fn () => $action->reset($user, ['password' => 'New-Password-42!', 'password_confirmation' => 'different-password-42']))->toThrow(ValidationException::class);
+    expect(Hash::check('Old-Password-42!', $user->fresh()->password))->toBeTrue();
+    $action->reset($user, ['password' => 'New-Password-42!', 'password_confirmation' => 'New-Password-42!']);
+    expect(Hash::check('New-Password-42!', $user->fresh()->password))->toBeTrue();
 });
 
 it('requires the current password before updating it', function (): void {
-    $user = User::factory()->create(['password' => Hash::make('old-password-42')]);
+    $user = User::factory()->create(['password' => Hash::make('Old-Password-42!')]);
     $this->actingAs($user);
     $action = app(UpdateUserPassword::class);
-    expect(fn () => $action->update($user, ['current_password' => 'wrong-password', 'password' => 'new-password-42', 'password_confirmation' => 'new-password-42']))->toThrow(ValidationException::class);
-    expect(Hash::check('old-password-42', $user->fresh()->password))->toBeTrue();
-    $action->update($user, ['current_password' => 'old-password-42', 'password' => 'new-password-42', 'password_confirmation' => 'new-password-42']);
-    expect(Hash::check('new-password-42', $user->fresh()->password))->toBeTrue();
+    expect(fn () => $action->update($user, ['current_password' => 'wrong-password', 'password' => 'New-Password-42!', 'password_confirmation' => 'New-Password-42!']))->toThrow(ValidationException::class);
+    expect(Hash::check('Old-Password-42!', $user->fresh()->password))->toBeTrue();
+    $action->update($user, ['current_password' => 'Old-Password-42!', 'password' => 'New-Password-42!', 'password_confirmation' => 'New-Password-42!']);
+    expect(Hash::check('New-Password-42!', $user->fresh()->password))->toBeTrue();
 });
 
 it('validates profile uniqueness while allowing the existing email', function (): void {
