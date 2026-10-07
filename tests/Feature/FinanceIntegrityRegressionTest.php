@@ -119,3 +119,71 @@ it('keeps encrypted integration settings out of team serialization', function ()
     $team->forceFill(['name' => 'Synthetic secret company', 'vonage_key' => 'synthetic-key', 'vonage_secret' => 'synthetic-secret', 'accounting_setup' => ['integration_token' => 'synthetic-token']]);
     expect($team->toArray())->not->toHaveKeys(['vonage_key', 'vonage_secret', 'accounting_setup']);
 });
+
+it('reconciles beginning cash and period movements without including noncash assets', function (): void {
+    $this->cash->update(['metadata' => ['is_cash_equivalent' => true]]);
+    app(PostJournal::class)->handle($this->journal);
+    $inventory = Account::create(['legal_entity_id' => $this->book->legal_entity_id, 'code' => '1200', 'name' => 'Inventory', 'type' => 'asset', 'normal_balance' => 'debit']);
+    foreach ([[$this->cash->id, '25.00'], [$inventory->id, '500.00']] as [$accountId, $amount]) {
+        app(PostJournal::class)->handle(app(CreateJournal::class)->handle(['book_id' => $this->book->id, 'entry_date' => '2026-02-15'], [
+            ['account_id' => $accountId, 'debit' => $amount],
+            ['account_id' => $this->revenue->id, 'credit' => $amount],
+        ]));
+    }
+    $report = app(StatementQuery::class)->cashFlow($this->book->id, '2026-02-01', '2026-02-28');
+    expect($report['beginning_cash'])->toBe(100.0)
+        ->and($report['ending_cash'])->toBe(125.0)
+        ->and($report['net_change_in_cash'])->toBe(25.0)
+        ->and($report['classification_complete'])->toBeFalse()
+        ->and($report['operating_activities']['net_cash_from_operations'])->toBeNull()
+        ->and($report['unclassified_activities']['net_cash_unclassified'])->toBe(25.0)
+        ->and($report['unclassified_activities']['accounts'])->toHaveCount(1);
+});
+
+it('does not guess that an unclassified asset account is cash', function (): void {
+    app(PostJournal::class)->handle($this->journal);
+    $report = app(StatementQuery::class)->cashFlow($this->book->id, '2026-01-01', '2026-01-31');
+    expect($report['ending_cash'])->toBe(0.0)
+        ->and($report['unclassified_activities']['accounts'])->toBeEmpty();
+});
+
+it('preserves negative expense balances instead of turning refunds into expenses', function (): void {
+    $expense = Account::create(['legal_entity_id' => $this->book->legal_entity_id, 'code' => '5000', 'name' => 'Refunded expense', 'type' => 'expense', 'normal_balance' => 'debit']);
+    app(PostJournal::class)->handle(app(CreateJournal::class)->handle(['book_id' => $this->book->id, 'entry_date' => '2026-01-20'], [
+        ['account_id' => $this->cash->id, 'debit' => '20.00'],
+        ['account_id' => $expense->id, 'credit' => '20.00'],
+    ]));
+    $report = app(StatementQuery::class)->profitAndLoss($this->book->id, '2026-01-01', '2026-01-31');
+    expect($report['expenses']['total'])->toBe(-20.0)->and($report['net_income'])->toBe(20.0);
+});
+
+it('preserves negative liabilities in the accounting equation', function (): void {
+    $liability = Account::create(['legal_entity_id' => $this->book->legal_entity_id, 'code' => '2000', 'name' => 'Overpaid liability', 'type' => 'liability', 'normal_balance' => 'credit']);
+    app(PostJournal::class)->handle(app(CreateJournal::class)->handle(['book_id' => $this->book->id, 'entry_date' => '2026-01-20'], [
+        ['account_id' => $liability->id, 'debit' => '20.00'],
+        ['account_id' => $this->cash->id, 'credit' => '20.00'],
+    ]));
+    $report = app(StatementQuery::class)->balanceSheet($this->book->id, '2026-01-31');
+    expect($report['assets']['total'])->toBe(-20.0)
+        ->and($report['liabilities']['total'])->toBe(-20.0)->and($report['balance_check'])->toBe(0.0);
+});
+
+it('deducts contra assets even when their configured normal balance is credit', function (): void {
+    app(PostJournal::class)->handle($this->journal);
+    $contra = Account::create(['legal_entity_id' => $this->book->legal_entity_id, 'code' => '1500', 'name' => 'Accumulated depreciation', 'type' => 'asset', 'normal_balance' => 'credit']);
+    $expense = Account::create(['legal_entity_id' => $this->book->legal_entity_id, 'code' => '5000', 'name' => 'Depreciation', 'type' => 'expense', 'normal_balance' => 'debit']);
+    app(PostJournal::class)->handle(app(CreateJournal::class)->handle(['book_id' => $this->book->id, 'entry_date' => '2026-01-20'], [
+        ['account_id' => $expense->id, 'debit' => '20.00'],
+        ['account_id' => $contra->id, 'credit' => '20.00'],
+    ]));
+    $report = app(StatementQuery::class)->balanceSheet($this->book->id, '2026-01-31');
+    expect($report['assets']['total'])->toBe(80.0)
+        ->and($report['equity']['total'])->toBe(80.0)->and($report['balance_check'])->toBe(0.0);
+});
+
+it('includes retained earnings posted before the year 2000', function (): void {
+    $this->journal->update(['entry_date' => '1999-01-15']);
+    app(PostJournal::class)->handle($this->journal);
+    $report = app(StatementQuery::class)->balanceSheet($this->book->id, '1999-12-31');
+    expect($report['equity']['retained_earnings'])->toBe(100.0)->and($report['balance_check'])->toBe(0.0);
+});

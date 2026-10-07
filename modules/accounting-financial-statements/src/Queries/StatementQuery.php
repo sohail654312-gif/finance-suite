@@ -20,8 +20,8 @@ final class StatementQuery
         $expenses = array_values(array_filter($rows, static fn (array $row): bool => $row['type'] === 'expense'));
         $sum = static fn (array $set): float => round(array_sum(array_column($set, 'balance')), 2);
         $totalRevenue = $sum($revenue);
-        $totalCogs = abs($sum($cogs));
-        $totalExpenses = abs($sum($expenses));
+        $totalCogs = $sum($cogs);
+        $totalExpenses = $sum($expenses);
 
         return [
             'type' => 'profit_and_loss',
@@ -45,9 +45,11 @@ final class StatementQuery
         $liabilities = $group(['liability', 'current_liability', 'long_term_liability']);
         $equity = $group(['equity']);
         $sum = static fn (array $set): float => round(array_sum(array_column($set, 'balance')), 2);
-        $retainedEarnings = $this->profitAndLoss($bookId, '2000-01-01', $asOf, $dimensions)['net_income'];
+        $firstPosting = DB::table('accounting_journal_entries')->where('book_id', $bookId)
+            ->whereIn('status', ['posted', 'reversed'])->whereDate('entry_date', '<=', $asOf)->min('entry_date');
+        $retainedEarnings = $this->profitAndLoss($bookId, (string) ($firstPosting ?? $asOf), $asOf, $dimensions)['net_income'];
         $totalAssets = $sum($assets);
-        $totalLiabilities = abs($sum($liabilities));
+        $totalLiabilities = $sum($liabilities);
         $totalEquity = round($sum($equity) + $retainedEarnings, 2);
 
         return [
@@ -65,23 +67,22 @@ final class StatementQuery
     public function cashFlow(int $bookId, string $start, string $end, ?array $dimensions = null): array
     {
         $this->validatePeriod($bookId, $start, $end);
-        $cashRows = $this->accounts($bookId, $end, $start, ['bank', 'cash'], $dimensions);
-        if ($cashRows === []) {
-            // Legacy charts commonly classify the cash account as a generic asset.
-            $cashRows = $this->accounts($bookId, $end, $start, ['asset'], $dimensions);
-        }
-        $beginningRows = $this->accounts($bookId, $this->previousDate($start), null, ['bank', 'cash'], $dimensions);
+        $cashRows = $this->accounts($bookId, $end, $start, null, $dimensions, true);
+        $endingRows = $this->accounts($bookId, $end, null, null, $dimensions, true);
+        $beginningRows = $this->accounts($bookId, $this->previousDate($start), null, null, $dimensions, true);
         $beginningCash = round(array_sum(array_column($beginningRows, 'balance')), 2);
-        $endingCash = round(array_sum(array_column($cashRows, 'balance')), 2);
+        $endingCash = round(array_sum(array_column($endingRows, 'balance')), 2);
         $netChange = round($endingCash - $beginningCash, 2);
 
         return [
             'type' => 'cash_flow',
             'period' => ['start_date' => $start, 'end_date' => $end],
             'dimensions' => $dimensions ?? [],
-            'operating_activities' => ['accounts' => $cashRows, 'net_cash_from_operations' => $netChange],
-            'investing_activities' => ['accounts' => [], 'net_cash_from_investing' => 0.0],
-            'financing_activities' => ['accounts' => [], 'net_cash_from_financing' => 0.0],
+            'classification_complete' => false,
+            'operating_activities' => ['accounts' => [], 'net_cash_from_operations' => null],
+            'investing_activities' => ['accounts' => [], 'net_cash_from_investing' => null],
+            'financing_activities' => ['accounts' => [], 'net_cash_from_financing' => null],
+            'unclassified_activities' => ['accounts' => $cashRows, 'net_cash_unclassified' => $netChange],
             'net_change_in_cash' => $netChange,
             'beginning_cash' => $beginningCash,
             'ending_cash' => $endingCash,
@@ -121,7 +122,7 @@ final class StatementQuery
         $this->validatePeriod($bookId, $start, $end);
         $query = $this->lines($bookId, $end, $start, $dimensions)->where('a.id', $accountId);
 
-        return $query->orderBy('j.entry_date')->select(
+        return $query->orderBy('j.entry_date')->orderBy('j.id')->orderBy('l.id')->select(
             'j.id as journal_id', 'j.entry_number', 'j.entry_date', 'j.description',
             'l.debit', 'l.credit', 'l.description as line_description', 'l.dimensions',
         )->get()->map(static fn ($row): array => (array) $row)->all();
@@ -146,16 +147,23 @@ final class StatementQuery
         return $query;
     }
 
-    private function accounts(int $bookId, string $end, ?string $start = null, ?array $types = null, ?array $dimensions = null): array
+    private function accounts(int $bookId, string $end, ?string $start = null, ?array $types = null, ?array $dimensions = null, bool $cashOnly = false): array
     {
         return $this->lines($bookId, $end, $start, $dimensions)
             ->when($types, fn (Builder $query): Builder => $query->whereIn('a.type', $types))
+            ->when($cashOnly, fn (Builder $query): Builder => $query->where(function (Builder $cash): void {
+                $cash->whereIn('a.type', ['bank', 'cash'])->orWhere(function (Builder $asset): void {
+                    $asset->where('a.type', 'asset')->where('a.metadata->is_cash_equivalent', true);
+                });
+            }))
             ->groupBy('a.id', 'a.code', 'a.name', 'a.type', 'a.normal_balance')
+            ->orderBy('a.code')->orderBy('a.id')
             ->select('a.id', 'a.code', 'a.name', 'a.type', 'a.normal_balance', DB::raw('SUM(l.debit) as debits'), DB::raw('SUM(l.credit) as credits'))
             ->get()->map(static function ($row): array {
                 $debit = (float) $row->debits;
                 $credit = (float) $row->credits;
-                $balance = $row->normal_balance === 'debit' ? $debit - $credit : $credit - $debit;
+                $creditPresentation = in_array($row->type, ['revenue', 'liability', 'equity', 'current_liability', 'long_term_liability'], true);
+                $balance = $creditPresentation ? $credit - $debit : $debit - $credit;
 
                 return ['account_id' => $row->id, 'code' => $row->code, 'name' => $row->name, 'type' => $row->type, 'debits' => round($debit, 2), 'credits' => round($credit, 2), 'balance' => round($balance, 2)];
             })->values()->all();
