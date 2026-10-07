@@ -19,7 +19,9 @@ beforeEach(function (): void {
 });
 
 it('recalculates bill and customer credit totals after line creation, edits and deletion', function (string $document, string $taxMode): void {
-    $rate = TaxRate::create(['team_id' => $this->subledgerTeam->id, 'name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
+    $rate = new TaxRate(['name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
+    $rate->team_id = $this->subledgerTeam->id;
+    $rate->save();
     $header = ['team_id' => $this->subledgerTeam->id, 'total_amount' => 0, 'tax_rate_id' => $taxMode === 'document' ? $rate->tax_rate_id : null];
     $record = $document === 'bill'
         ? Bill::factory()->create($header)

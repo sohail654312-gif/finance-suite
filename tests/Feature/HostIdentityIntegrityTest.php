@@ -62,7 +62,14 @@ it('rejects a breached password through the configured verification contract', f
     $verifier = Mockery::mock(UncompromisedVerifier::class);
     $verifier->shouldReceive('verify')->andReturnFalse();
     app()->instance(UncompromisedVerifier::class, $verifier);
-    expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))->toThrow(ValidationException::class);
+    $previousEnvironment = app()['env'];
+    app()['env'] = 'production';
+    try {
+        expect(fn () => app(CreateNewUser::class)->create(['name' => 'New Accountant', 'email' => 'new@example.test', 'password' => 'Synthetic-Password-42!', 'password_confirmation' => 'Synthetic-Password-42!', 'role' => 'tenant']))->toThrow(ValidationException::class);
+        $verifier->shouldHaveReceived('verify')->once();
+    } finally {
+        app()['env'] = $previousEnvironment;
+    }
     $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
 });
 
