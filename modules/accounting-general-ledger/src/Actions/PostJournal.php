@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Liberu\Accounting\GeneralLedger\Actions;
 
 use Illuminate\Support\Facades\DB;
+use Liberu\Accounting\Core\Events\PostingToBook;
 use Liberu\Accounting\GeneralLedger\Enums\JournalStatus;
 use Liberu\Accounting\GeneralLedger\Events\JournalPosted;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
@@ -24,6 +25,7 @@ final class PostJournal
             if (! $journal->isBalanced()) {
                 throw new InvalidJournal('Journal must be balanced before posting.');
             }
+            event(new PostingToBook((int) $journal->book_id, $journal->entry_date->toDateString()));
             foreach ($journal->lines as $line) {
                 /** @var JournalLine $line */
                 $account = $line->account()->lockForUpdate()->firstOrFail();

@@ -14,6 +14,8 @@ use Liberu\Accounting\GeneralLedger\Enums\JournalStatus;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
 use Liberu\Accounting\GeneralLedger\Models\JournalEntry;
 use Liberu\Accounting\GeneralLedger\Queries\AccountBalances;
+use Liberu\Accounting\Periods\Exceptions\InvalidPeriodTransition;
+use Liberu\Accounting\Periods\Models\AccountingPeriod;
 
 beforeEach(function (): void {
     $entity = LegalEntity::create(['name' => 'Synthetic integrity company', 'currency_code' => 'USD']);
@@ -186,4 +188,43 @@ it('includes retained earnings posted before the year 2000', function (): void {
     app(PostJournal::class)->handle($this->journal);
     $report = app(StatementQuery::class)->balanceSheet($this->book->id, '1999-12-31');
     expect($report['equity']['retained_earnings'])->toBe(100.0)->and($report['balance_check'])->toBe(0.0);
+});
+
+it('rejects posting into closed periods through the public GL action', function (string $state): void {
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => $state]);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+    expect($this->journal->fresh()->status)->toBe(JournalStatus::Draft);
+})->with(['soft_closed', 'hard_closed']);
+
+it('rejects posting after the configured posting cutoff', function (): void {
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'posting_ends_on' => '2026-01-14', 'state' => 'open']);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+});
+
+it('rejects dates outside an existing fiscal calendar and ambiguous overlapping periods', function (): void {
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-02-01', 'ends_on' => '2026-02-28', 'state' => 'open']);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'open']);
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-10', 'ends_on' => '2026-01-20', 'state' => 'open']);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+});
+
+it('applies the same period protection to reversal journals atomically', function (): void {
+    $posted = app(PostJournal::class)->handle($this->journal);
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'open']);
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-02-01', 'ends_on' => '2026-02-28', 'state' => 'hard_closed']);
+    expect(fn () => app(ReverseJournal::class)->handle($posted, ['entry_date' => '2026-02-01']))->toThrow(InvalidPeriodTransition::class);
+    expect($posted->fresh()->status)->toBe(JournalStatus::Posted)->and(JournalEntry::count())->toBe(1);
+});
+
+it('allows posting into an open period despite a different book being closed', function (): void {
+    $otherBook = Book::create(['legal_entity_id' => $this->book->legal_entity_id, 'name' => 'Other book', 'code' => 'OTHER']);
+    AccountingPeriod::create(['book_id' => $otherBook->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'hard_closed']);
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'open']);
+    expect(app(PostJournal::class)->handle($this->journal)->status)->toBe(JournalStatus::Posted);
+});
+
+it('rejects a locked period even if its state was changed to open', function (): void {
+    AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'open', 'locked_at' => now()]);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
 });
