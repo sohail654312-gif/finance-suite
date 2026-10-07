@@ -7,7 +7,7 @@ namespace App\Models;
 use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class TaxRate extends Model
 {
@@ -47,20 +47,20 @@ class TaxRate extends Model
     }
 
     /**
-     * @return HasMany<Invoice, $this>
+     * @return HasManyThrough<Invoice, InvoiceItem, $this>
      */
-    public function invoices(): HasMany
+    public function invoices(): HasManyThrough
     {
-        return $this->hasMany(Invoice::class);
+        return $this->hasManyThrough(Invoice::class, InvoiceItem::class, 'tax_rate_id', 'id', 'tax_rate_id', 'invoice_id')->distinct();
     }
 
     public function customers()
     {
-        return $this->belongsToMany(Customer::class);
+        return $this->belongsToMany(Customer::class, 'customer_tax_rate', 'tax_rate_id', 'customer_id', 'tax_rate_id', 'id');
     }
 
     public function suppliers()
     {
-        return $this->belongsToMany(Supplier::class);
+        return $this->belongsToMany(Supplier::class, 'supplier_tax_rate', 'tax_rate_id', 'supplier_id', 'tax_rate_id', 'supplier_id');
     }
 }

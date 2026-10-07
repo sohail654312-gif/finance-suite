@@ -47,7 +47,7 @@ class Company extends Model
      */
     public function hmrcSubmissions()
     {
-        return $this->hasMany(HmrcSubmission::class);
+        return $this->hasMany(HmrcSubmission::class, 'company_id', 'company_id');
     }
 
     /**
@@ -55,7 +55,7 @@ class Company extends Model
      */
     public function hmrcVatReturns()
     {
-        return $this->hasMany(HmrcVatReturn::class);
+        return $this->hasMany(HmrcVatReturn::class, 'company_id', 'company_id');
     }
 
     /**
@@ -63,7 +63,7 @@ class Company extends Model
      */
     public function hmrcPayeSubmissions()
     {
-        return $this->hasMany(HmrcPayeSubmission::class);
+        return $this->hasMany(HmrcPayeSubmission::class, 'company_id', 'company_id');
     }
 
     /**
@@ -71,7 +71,7 @@ class Company extends Model
      */
     public function hmrcCorporationTaxSubmissions()
     {
-        return $this->hasMany(HmrcCorporationTaxSubmission::class);
+        return $this->hasMany(HmrcCorporationTaxSubmission::class, 'company_id', 'company_id');
     }
 
     /**

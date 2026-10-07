@@ -2,21 +2,23 @@
 
 **Production acceptance withheld. Do not merge.** PR #17 remains DRAFT. Preview must wait for a verified accounting checkpoint and a tested isolated demo boundary.
 
-Current evidence at cf9e537, 7 October 2026; exact job links/counts are in [the review baseline](REVIEW-REPAIR-BASELINE.md).
+Evidence from 7 October 2026: focused/Install/Docker at 23ef827; completed full verification at 53d2a7f. New schema repairs and an explicit Estimate customer relationship type remain under fresh verification. Exact job links/counts are in [the review baseline](REVIEW-REPAIR-BASELINE.md).
 
 | Gate | Result | Evidence / remaining work |
 |---|---|---|
 | Composer strict validation | PASS | Local and cloud |
 | Composer locked audit | PASS | Zero advisories after minimum 14-package security patch; no ignores |
 | Strict locked dependency install | PASS cloud | Install workflow; Windows pcntl remains unsupported |
-| Module validation | PASS cloud | Finance Integrity job 112924393479 |
+| Module validation | PASS cloud | Finance Integrity job 112951301390 at 7ef57f5 |
 | Foundation doctor | PASS cloud | Same job |
 | Pint | PASS | Standalone dirty formatter and cloud full test |
-| PHPStan | PASS cloud | Job 112924393530, unchanged level 5 |
+| PHPStan | FAIL current / correction pending | Latest Tests job 112953916706 at 23ef827 found untyped Estimate customer relationship; explicit type added, unchanged level 5. Earlier 53d2a7f/4bedd22 PASS |
 | Clean SQLite migrations | PASS cloud | Install run 37659887812 |
 | Focused accounting regressions | PASS cloud | 33 cases / 76 assertions |
-| Provider/schema recovery | PASS cloud | 55 cases / 156 assertions |
-| Full tests / 100% host coverage | NOT ACCEPTED | 1,298 cases / 4,211 assertions PASS; actual coverage 65.8%. Forwarded-option ordering had bypassed the threshold; corrected without exclusions |
+| Provider/schema recovery | FAIL latest / correction pending | 23 relationship/schema errors in strengthened guard at 2038269; additive migration and real keys under verification. Earlier 55 cases / 156 assertions PASS |
+| Host reporting/identity/subledger/provider regressions | PASS cloud | 111 cases / 697 assertions at 23ef827; new schema persistence cases under verification |
+| Full tests / 100% host coverage | FAIL coverage | 1,312 cases / 4,250 assertions PASS at 53d2a7f; actual coverage 66.3530% (9,379/14,135 lines). Both reordered threshold and independent Clover check reject the result; artifact preserved |
+| Codecov publication | BLOCKED configuration | Previous full Tests job requires a Codecov token; upload failures remain enforced |
 | npm ci / production audit / frontend build | PASS cloud | Install run; local audit zero vulnerabilities |
 | git diff --check | PASS | Repeat after final edits |
 | Docker image build | PASS cloud | Run 37659887820; registry publication skipped on PR |

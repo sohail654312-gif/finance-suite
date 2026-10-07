@@ -2,13 +2,20 @@
 
 use App\Models\Account;
 use App\Models\Bill;
+use App\Models\Category;
 use App\Models\CreditMemo;
+use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\DelayedCharge;
 use App\Models\Estimate;
+use App\Models\InventoryItem;
 use App\Models\Invoice;
+use App\Models\PaymentTerm;
+use App\Models\PurchaseOrder;
 use App\Models\SalesReceipt;
+use App\Models\Supplier;
 use App\Models\TaxRate;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VendorCredit;
@@ -216,4 +223,90 @@ it('keeps a delayed customer charge attached to the actual customer primary key'
     expect($charge->amount)->toBe('100.00')
         ->and($customer->delayedCharges()->sole()->getKey())->toBe($charge->getKey())
         ->and($other->delayedCharges()->count())->toBe(0);
+});
+
+it('resolves account and transaction currencies through the stored currency keys', function (): void {
+    $currency = Currency::create(['code' => 'GBP', 'name' => 'Pound sterling', 'symbol' => '£']);
+    $other = Currency::create(['code' => 'USD', 'name' => 'US dollar', 'symbol' => '$']);
+    $account = Account::factory()->create(['currency_id' => $currency->getKey()]);
+    $transaction = Transaction::factory()->create(['currency_id' => $currency->getKey()]);
+    expect($account->currency->getKey())->toBe($currency->getKey())
+        ->and($transaction->currency->getKey())->toBe($currency->getKey())
+        ->and($currency->accounts()->sole()->getKey())->toBe($account->getKey())
+        ->and($currency->transactions()->sole()->getKey())->toBe($transaction->getKey())
+        ->and($other->accounts()->count())->toBe(0)
+        ->and($other->transactions()->count())->toBe(0);
+});
+
+it('persists account and transaction categories in both directions without duplicate associations', function (): void {
+    $category = Category::create(['name' => 'Synthetic operating activity']);
+    $account = Account::factory()->create();
+    $transaction = Transaction::factory()->create();
+    $account->categories()->syncWithoutDetaching([$category->id]);
+    $transaction->categories()->syncWithoutDetaching([$category->id]);
+    $transaction->categories()->syncWithoutDetaching([$category->id]);
+    expect($category->accounts()->sole()->getKey())->toBe($account->id)
+        ->and($category->transactions()->sole()->getKey())->toBe($transaction->getKey())
+        ->and($account->categories()->sole()->getKey())->toBe($category->id)
+        ->and($transaction->categories()->sole()->getKey())->toBe($category->id);
+    $category->delete();
+    $this->assertDatabaseCount('account_category', 0);
+    $this->assertDatabaseCount('category_transaction', 0);
+    expect($account->fresh())->not->toBeNull()->and($transaction->fresh())->not->toBeNull();
+});
+
+it('keeps inventory movement linked to the actual transaction primary key', function (): void {
+    $account = Account::factory()->create();
+    $item = InventoryItem::create(['name' => 'Synthetic stock', 'sku' => 'SYNTHETIC-1', 'unit_price' => 25, 'account_id' => $account->id]);
+    $transaction = Transaction::factory()->create(['amount' => 50]);
+    $movement = $transaction->inventoryTransactions()->create(['inventory_item_id' => $item->id, 'quantity' => 2, 'unit_price' => 25, 'transaction_type' => 'purchase']);
+    expect($movement->transaction->getKey())->toBe($transaction->getKey())
+        ->and($movement->inventoryItem->getKey())->toBe($item->id)
+        ->and($item->transactions()->sole()->getKey())->toBe($movement->getKey())
+        ->and($transaction->inventoryTransactions()->sole()->getKey())->toBe($movement->getKey());
+});
+
+it('retrieves tax-bearing invoices from their lines and returns each invoice once', function (): void {
+    $rate = TaxRate::create(['name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
+    $otherRate = TaxRate::create(['name' => 'Synthetic reduced rate', 'rate' => 5, 'is_active' => true]);
+    $vendor = Vendor::factory()->create();
+    $invoice = Invoice::factory()->create(['vendor_id' => $vendor->getKey()]);
+    foreach (['First service', 'Second service'] as $description) {
+        $invoice->items()->create(['description' => $description, 'quantity' => 1, 'unit_price' => 100, 'tax_rate_id' => $rate->getKey()]);
+    }
+    $otherInvoice = Invoice::factory()->create();
+    $otherInvoice->items()->create(['description' => 'Reduced service', 'quantity' => 1, 'unit_price' => 100, 'tax_rate_id' => $otherRate->getKey()]);
+    expect($rate->invoices()->sole()->getKey())->toBe($invoice->id)
+        ->and($otherRate->invoices()->sole()->getKey())->toBe($otherInvoice->id)
+        ->and(TaxRate::with('invoices')->findOrFail($rate->getKey())->invoices->pluck('id')->all())->toBe([$invoice->id])
+        ->and($vendor->invoices()->sole()->getKey())->toBe($invoice->id)
+        ->and($invoice->fresh()->getTotalWithTax())->toEqual(240);
+});
+
+it('persists customer and supplier tax-rate assignments against their real primary keys', function (): void {
+    $customer = Customer::factory()->create();
+    $term = PaymentTerm::create(['payment_term_name' => 'Synthetic thirty days', 'payment_term_description' => 'Synthetic terms', 'payment_term_number_of_days' => 30]);
+    $supplier = Supplier::create(['payment_term_id' => $term->getKey(), 'supplier_first_name' => 'Synthetic', 'supplier_last_name' => 'Supplier', 'supplier_email' => 'supplier@example.test', 'supplier_address' => 'Synthetic address', 'supplier_phone_number' => '0000000000', 'supplier_limit_credit' => 1000, 'supplier_tin' => 12345]);
+    $rate = TaxRate::create(['name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
+    $rate->customers()->attach($customer->id);
+    $rate->suppliers()->attach($supplier->getKey());
+    expect($rate->customers()->sole()->getKey())->toBe($customer->id)
+        ->and($rate->suppliers()->sole()->getKey())->toBe($supplier->getKey());
+    $rate->delete();
+    $this->assertDatabaseCount('customer_tax_rate', 0);
+    $this->assertDatabaseCount('supplier_tax_rate', 0);
+    expect($customer->fresh())->not->toBeNull()->and($supplier->fresh())->not->toBeNull();
+});
+
+it('keeps optional purchase-order transactions and unlinks them safely when the order is deleted', function (): void {
+    $term = PaymentTerm::create(['payment_term_name' => 'Synthetic immediate', 'payment_term_description' => 'Synthetic terms', 'payment_term_number_of_days' => 0]);
+    $supplier = Supplier::create(['payment_term_id' => $term->getKey(), 'supplier_first_name' => 'Synthetic', 'supplier_last_name' => 'Supplier', 'supplier_email' => 'supplier@example.test', 'supplier_address' => 'Synthetic address', 'supplier_phone_number' => '0000000000', 'supplier_limit_credit' => 1000, 'supplier_tin' => 12345]);
+    $order = PurchaseOrder::create(['supplier_id' => $supplier->getKey(), 'po_number' => 'SYNTHETIC-PO-1', 'order_date' => '2026-10-07', 'total_amount' => 50]);
+    $unrelated = Transaction::factory()->create();
+    $transaction = $order->transactions()->create(['transaction_date' => '2026-10-07', 'amount' => 50, 'type' => 'debit']);
+    expect($order->transactions()->sole()->getKey())->toBe($transaction->getKey())
+        ->and($unrelated->fresh()->purchase_order_id)->toBeNull();
+    $order->delete();
+    expect($transaction->fresh()->purchase_order_id)->toBeNull()
+        ->and($transaction->fresh()->amount)->toBe('50.00');
 });

@@ -66,7 +66,7 @@ class Vendor extends Authenticatable implements FilamentUser
 
     public function invoices()
     {
-        return $this->hasMany(Invoice::class);
+        return $this->hasMany(Invoice::class, 'vendor_id', 'vendor_id');
     }
 
     public function bills()

@@ -27,7 +27,7 @@
 
 At cf9e537, `tests/Feature/FinanceIntegrityRegressionTest.php` passes **33 cases / 76 assertions** in cloud PHP 8.5/SQLite. It covers decimal validation/storage loss, caller lifecycle state, individual posting validation, immutability, entity ownership, reversal/report/drill-through reconciliation, statement signs, strict date normalization, cash balances and configured/setup/production period controls. Provider/schema recovery passes **55 cases / 156 assertions**. Exact run/job evidence is in [the review baseline](REVIEW-REPAIR-BASELINE.md).
 
-Pint and PHPStan pass at unchanged strictness at cf9e537. Full suite and 100% host coverage remain mandatory and pending at this checkpoint. Focused results do not accept V1 or authorize public deployment. Windows pcntl prevents strict local application install; Linux execution supplies the application evidence without local Docker.
+Further evidence: at 7ef57f5, the unchanged 33 accounting and 55 provider/schema cases plus 93 host integrity cases PASS. At 53d2a7f, Pint, unchanged level-5 PHPStan and all 1,312 full-suite cases PASS; enforced host coverage FAILS at 66.3530% (9,379/14,135 executable lines). The former green job's forwarded-option ordering bypassed the threshold; this is corrected with an independent fail-closed Clover check and preserved artifact. The 100% requirement remains unmet, not waived. New estimate/setup/schema corrections are under verification. Focused results do not accept V1 or authorize public deployment. Windows pcntl prevents strict local application install; Linux execution supplies the application evidence without local Docker.
 
 ## 32-step integrated lifecycle
 

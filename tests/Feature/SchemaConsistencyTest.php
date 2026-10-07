@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
+use Illuminate\Database\Eloquent\Relations\HasOneOrManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphOneOrMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -53,7 +54,7 @@ class SchemaConsistencyTest extends TestCase
                     continue;
                 }
                 $source = implode('', array_slice(file($method->getFileName()), $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1));
-                if (! preg_match('/\$this->(?:belongsTo|belongsToMany|hasOne|hasMany|morphTo|morphOne|morphMany|morphToMany|morphedByMany)\(/', $source)) {
+                if (! preg_match('/\$this->(?:belongsTo|belongsToMany|hasOne|hasMany|hasOneThrough|hasManyThrough|morphTo|morphOne|morphMany|morphToMany|morphedByMany)\(/', $source)) {
                     continue;
                 }
                 $name = $class.'::'.$method->getName().'()';
@@ -67,6 +68,11 @@ class SchemaConsistencyTest extends TestCase
                     } elseif ($relation instanceof BelongsTo) {
                         $check($model->getTable(), $relation->getForeignKeyName(), $name);
                         $check($relation->getRelated()->getTable(), $relation->getOwnerKeyName(), $name);
+                    } elseif ($relation instanceof HasOneOrManyThrough) {
+                        $check($relation->getParent()->getTable(), $relation->getFirstKeyName(), $name);
+                        $check($relation->getParent()->getTable(), $relation->getSecondLocalKeyName(), $name);
+                        $check($relation->getRelated()->getTable(), $relation->getForeignKeyName(), $name);
+                        $check($model->getTable(), $relation->getLocalKeyName(), $name);
                     } elseif ($relation instanceof HasOneOrMany) {
                         $check($relation->getRelated()->getTable(), $relation->getForeignKeyName(), $name);
                         $check($model->getTable(), $relation->getLocalKeyName(), $name);
