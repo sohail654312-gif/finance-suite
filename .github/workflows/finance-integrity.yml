@@ -51,7 +51,15 @@ jobs:
       - name: Resolve minimal security updates for review
         env:
           COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ github.token }}"}}'
-        run: composer update 'filament/*' laravel/framework league/commonmark phpseclib/phpseclib --with-all-dependencies --minimal-changes --no-install --no-scripts --no-interaction
+        run: >-
+          composer update 'filament/*' laravel/framework league/commonmark phpseclib/phpseclib
+          --with filament/actions:5.8.2 --with filament/filament:5.8.2
+          --with filament/forms:5.8.2 --with filament/infolists:5.8.2
+          --with filament/notifications:5.8.2 --with filament/query-builder:5.8.2
+          --with filament/schemas:5.8.2 --with filament/spatie-laravel-settings-plugin:5.8.2
+          --with filament/support:5.8.2 --with filament/tables:5.8.2 --with filament/widgets:5.8.2
+          --with laravel/framework:13.30.0 --with league/commonmark:2.10.3 --with phpseclib/phpseclib:3.0.57
+          --with-all-dependencies --minimal-changes --no-install --no-scripts --no-interaction --verbose
       - name: Validate resolved metadata
         run: composer validate --strict
       - name: Audit resolved dependencies
