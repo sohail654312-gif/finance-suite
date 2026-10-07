@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services;
 
+use App\Models\Account;
+use App\Models\User;
 use App\Services\ExchangeRateService;
 use App\Services\GeneralLedgerService;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Mockery;
@@ -44,11 +47,16 @@ class GeneralLedgerServiceTest extends TestCase
 
     public function test_trial_balance_has_expected_shape_when_accounts_exist(): void
     {
-        // Create a currency-free account by only asserting the shape when rows exist.
-        $this->service->getTrialBalance('2024-12-31');
-
-        // Even with no rows this assertion is valid.
-        $this->assertTrue(true);
+        $user = User::factory()->create();
+        $team = app(TeamManagementService::class)->createPersonalTeamForUser($user);
+        $this->actingAs($user->fresh());
+        $account = Account::factory()->create(['team_id' => $team->id, 'balance' => -125]);
+        $rows = $this->service->getTrialBalance('2024-12-31');
+        $this->assertCount(1, $rows);
+        $this->assertSame($account->id, $rows[0]['account_id']);
+        $this->assertSame($account->account_name, $rows[0]['account_name']);
+        $this->assertSame(0, $rows[0]['debit']);
+        $this->assertSame(125.0, $rows[0]['credit']);
     }
 
     protected function tearDown(): void

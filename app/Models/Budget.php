@@ -68,7 +68,14 @@ class Budget extends Model
 
     public function getActualAmount(): float|int
     {
-        $query = Transaction::whereBetween('transaction_date', [$this->start_date, $this->end_date]);
+        $teamId = $this->team_id ?? -1;
+        if (! Account::whereKey($this->account_id)->where('team_id', $teamId)->exists()) {
+            return 0;
+        }
+
+        $query = Transaction::where('team_id', $teamId)
+            ->where('account_id', $this->account_id)
+            ->whereBetween('transaction_date', [$this->start_date, $this->end_date]);
 
         if ($this->project_id) {
             $query->where('project_id', $this->project_id);

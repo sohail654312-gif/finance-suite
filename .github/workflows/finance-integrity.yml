@@ -43,6 +43,11 @@ jobs:
           tests/Feature/Api/XeroSyncTest.php tests/Feature/Api/XeroEntitiesSyncTest.php tests/Feature/Api/SageSyncTest.php
       - name: Validate modules
         run: php artisan module:validate
+      - name: Verify host reporting boundaries and coverage enforcement
+        run: >-
+          php artisan test --compact tests/Feature/HostAccountingReportingIntegrityTest.php
+          tests/Unit/HostCoverageGateTest.php tests/Unit/Services/GeneralLedgerServiceTest.php
+          tests/Unit/Services/BudgetServiceTest.php
       - name: Diagnose foundation
         run: php artisan foundation:doctor
 
