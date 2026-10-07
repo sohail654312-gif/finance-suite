@@ -164,7 +164,7 @@ class QuickBooksService
             }
         }
 
-        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row): array {
+        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row) use ($connection): array {
             $entity = (string) $row['_entity'];
             $amount = (float) ($row['TotalAmt'] ?? $row['TransferAmt'] ?? 0);
             if ($entity === 'Purchase') {

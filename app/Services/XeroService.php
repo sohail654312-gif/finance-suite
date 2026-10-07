@@ -152,7 +152,7 @@ class XeroService
     {
         $rows = $this->client($connection)->get('/BankTransactions')->throw()->json()['BankTransactions'] ?? [];
 
-        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row): array {
+        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row) use ($connection): array {
             $type = strtoupper((string) ($row['Type'] ?? 'RECEIVE'));
             $amount = (float) ($row['Total'] ?? 0);
             if ($type === 'SPEND') {

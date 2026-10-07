@@ -141,7 +141,7 @@ class SageService
     {
         $rows = $this->client($connection)->get('/bank_transactions')->throw()->json()['$items'] ?? [];
 
-        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row): array {
+        return app(ProviderTransactionImporter::class)->handle($rows, $connection->team_id, function (array $row) use ($connection): array {
             $amount = (float) ($row['amount'] ?? $row['total_amount'] ?? 0);
             if (strtolower((string) ($row['transaction_type'] ?? $row['type'] ?? 'receive')) === 'payment') {
                 $amount *= -1;
