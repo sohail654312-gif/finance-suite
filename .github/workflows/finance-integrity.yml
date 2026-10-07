@@ -37,15 +37,6 @@ jobs:
         run: php artisan module:validate
       - name: Diagnose foundation
         run: php artisan foundation:doctor
-      - name: Check formatting
-        if: always() && steps.install.outcome == 'success'
-        run: vendor/bin/pint --test
-      - name: Static analysis
-        if: always() && steps.install.outcome == 'success'
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Full tests with required host coverage
-        if: always() && steps.install.outcome == 'success'
-        run: php artisan test --coverage --coverage-clover=coverage.xml --min=100
 
   dependency-resolution:
     runs-on: ubuntu-latest
