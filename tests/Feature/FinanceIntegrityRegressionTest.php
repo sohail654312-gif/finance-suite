@@ -6,6 +6,7 @@ use App\Models\Team;
 use Liberu\Accounting\ChartOfAccounts\Models\Account;
 use Liberu\Accounting\Core\Models\Book;
 use Liberu\Accounting\Core\Models\LegalEntity;
+use Liberu\Accounting\FinancialStatements\Exceptions\InvalidStatementRequest;
 use Liberu\Accounting\FinancialStatements\Queries\StatementQuery;
 use Liberu\Accounting\GeneralLedger\Actions\CreateJournal;
 use Liberu\Accounting\GeneralLedger\Actions\PostJournal;
@@ -227,4 +228,11 @@ it('allows posting into an open period despite a different book being closed', f
 it('rejects a locked period even if its state was changed to open', function (): void {
     AccountingPeriod::create(['book_id' => $this->book->id, 'starts_on' => '2026-01-01', 'ends_on' => '2026-01-31', 'state' => 'open', 'locked_at' => now()]);
     expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+});
+
+it('keeps public statement dates strict while normalizing stored posting dates', function (): void {
+    app(PostJournal::class)->handle($this->journal);
+    $query = app(StatementQuery::class);
+    expect($query->balanceSheet($this->book->id, '2026-01-31')['balance_check'])->toBe(0.0);
+    expect(fn () => $query->balanceSheet($this->book->id, '2026-01-31 00:00:00'))->toThrow(InvalidStatementRequest::class);
 });

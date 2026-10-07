@@ -47,7 +47,10 @@ final class StatementQuery
         $sum = static fn (array $set): float => round(array_sum(array_column($set, 'balance')), 2);
         $firstPosting = DB::table('accounting_journal_entries')->where('book_id', $bookId)
             ->whereIn('status', ['posted', 'reversed'])->whereDate('entry_date', '<=', $asOf)->min('entry_date');
-        $retainedEarnings = $this->profitAndLoss($bookId, (string) ($firstPosting ?? $asOf), $asOf, $dimensions)['net_income'];
+        // Eloquent date casts persist a time component in SQLite. Normalize the
+        // database value without relaxing the public statement date contract.
+        $historyStart = $firstPosting === null ? $asOf : (new DateTimeImmutable((string) $firstPosting))->format('Y-m-d');
+        $retainedEarnings = $this->profitAndLoss($bookId, $historyStart, $asOf, $dimensions)['net_income'];
         $totalAssets = $sum($assets);
         $totalLiabilities = $sum($liabilities);
         $totalEquity = round($sum($equity) + $retainedEarnings, 2);
