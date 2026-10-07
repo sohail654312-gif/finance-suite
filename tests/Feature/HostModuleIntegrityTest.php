@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
-use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 
 function hostIntegrityModule(string $name, array $dependencies = [], bool $enabled = false): ModuleInterface
@@ -86,8 +85,6 @@ function hostIntegrityCommand(ModuleManager $manager, array $arguments, array $a
 {
     $command = new ModuleCommand($manager);
     $command->setLaravel(app());
-    $console = new Application();
-    $console->add($command);
     $tester = new CommandTester($command);
     $tester->setInputs($answers);
     $tester->execute($arguments, ['interactive' => $answers !== []]);
