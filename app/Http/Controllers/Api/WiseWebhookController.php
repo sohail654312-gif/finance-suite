@@ -57,7 +57,7 @@ class WiseWebhookController extends Controller
             ]);
         } catch (Exception $e) {
             Log::error('Wise webhook processing failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             // Return 200 to prevent Wise from retrying on processing errors

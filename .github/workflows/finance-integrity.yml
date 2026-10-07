@@ -48,6 +48,7 @@ jobs:
           php artisan test --compact tests/Feature/HostAccountingReportingIntegrityTest.php
           tests/Feature/HostIdentityIntegrityTest.php
           tests/Feature/HostSubledgerIntegrityTest.php
+          tests/Feature/Api/WiseIntegrityTest.php
           tests/Unit/HostCoverageGateTest.php tests/Unit/Services/GeneralLedgerServiceTest.php
           tests/Unit/Services/BudgetServiceTest.php
       - name: Diagnose foundation
