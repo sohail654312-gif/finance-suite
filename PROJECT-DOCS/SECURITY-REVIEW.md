@@ -1,25 +1,27 @@
-# Security review — initial findings
+# Security review — candidate findings
 
 7 October 2026. Targeted source review of lifecycle, ownership, policies, reports, providers, tax submission, workpapers, copilot and serialization. **Not exhaustive or certified.** V1 acceptance withheld.
 
 | ID | Severity | Finding / evidence | Disposition |
 |---|---|---|---|
 | SEC-01 | Critical | Modular legal entities lack team ownership; core/GL policies check abilities only; controllers accept object/book IDs. | OPEN: owned graph, fail-closed queries and cross-user API/UI/report/export tests |
-| SEC-02 | Critical | GL PostJournal ignores period/approval controls; UI calls directly; approval state separate by reference. | OPEN: canonical controls and direct/API/Filament/Livewire bypass tests |
+| SEC-02 | Critical | Approval state remains separate by reference; legacy/other posting paths and disabled-module bypass are unproven. | PARTIAL REPAIR: configured period/setup/production controls pass focused tests; approval linkage and production concurrency remain OPEN |
 | SEC-03 | High | Legacy journal mutation/deletion and reverse clearing posting/timestamp; lines lack history guards. | OPEN: reconcile authoritative ledger, preserve original history and opposite entries |
-| SEC-04 | High | Modular posted-line insertion and reparenting evade guards. | CANDIDATE FIX; tests pending; bulk SQL/concurrency protection remains OPEN |
-| SEC-05 | High | Float tolerance/caller lifecycle creation; absent posting ownership recheck/lock. | CANDIDATE FIX: exact decimals, lifecycle rejection, recheck/lock; direct model/concurrency proof remains OPEN |
-| SEC-06 | High | Reversed originals excluded from reports; caller controls reversal book/provenance. | CANDIDATE FIX: original posted effects plus opposite entry, fixed book/ref/type and lock; tests pending |
-| SEC-07 | High | QBO/Xero/Sage external-ID mappings not consistently tenant/company scoped; missing importer and sync job. | OPEN: scoped adapters, duplicate/retry/import reconciliation; live credentials unavailable |
+| SEC-04 | High | Modular posted-line insertion and reparenting evaded guards. | Focused model-save regressions PASS at cf9e537; bulk SQL/quiet writes/concurrency protection remains OPEN |
+| SEC-05 | High | Float tolerance/caller lifecycle creation; absent posting ownership recheck/lock. | Focused exact-decimal/storage-loss/posting validation and entity recheck regressions PASS; direct model/legacy/concurrency proof remains OPEN |
+| SEC-06 | High | Reversed originals excluded from reports; caller controls reversal book/provenance. | Focused modular history, date, book/ref/type and rollback regressions PASS; legacy and production locking remain OPEN |
+| SEC-07 | High | Provider company isolation, outbound object checks and complete import reconciliation unproven. | PARTIAL REPAIR: real sync job/importer/schema and inbound team mappings; 55 focused provider/schema cases PASS. Multi-provider-company per team, outbound safety and live credentials remain OPEN |
 | SEC-08 | High | SubmitTaxReturn marks Submitted from caller reference without provider acknowledgement. | OPEN: human approval, live/sandbox contracts and verifiable acknowledgement; fail closed in production |
-| SEC-09 | High | Encrypted Team integration settings/keys exposed in serialization. | CANDIDATE FIX: hidden attributes/test; broader secrets/resources review OPEN |
-| SEC-10 | High | CommonMark quadratic-time DoS [GHSA-3q6v-r5mr-hxv8](https://github.com/advisories/GHSA-3q6v-r5mr-hxv8). | OPEN: dependency remediation BLOCKED by Composer GitHub authentication |
-| SEC-11 | Medium | Filament MFA reauthentication [GHSA-7m6h-rg42-m449](https://github.com/advisories/GHSA-7m6h-rg42-m449); CommonMark HTML filter [GHSA-97jj-33gv-5xf9](https://github.com/advisories/GHSA-97jj-33gv-5xf9); phpseclib X25519 [GHSA-q97c-8qh3-fpc6](https://github.com/advisories/GHSA-q97c-8qh3-fpc6). | OPEN: compatible upgrades/tests; no suppression/risk acceptance |
-| SEC-12 | Low | Laravel debug-page XSS [GHSA-jh5r-qr3c-85q8](https://github.com/advisories/GHSA-jh5r-qr3c-85q8). | OPEN: patch/production debug verification; no suppression |
+| SEC-09 | High | Encrypted Team integration settings/keys exposed in serialization. | Focused hidden-attribute test PASS; broader secrets/resources review OPEN |
+| SEC-10 | High | CommonMark quadratic-time DoS [GHSA-3q6v-r5mr-hxv8](https://github.com/advisories/GHSA-3q6v-r5mr-hxv8). | Patched to 2.10.3; locked audit zero advisories. Full compatibility/coverage gates still pending |
+| SEC-11 | Medium | Filament MFA reauthentication [GHSA-7m6h-rg42-m449](https://github.com/advisories/GHSA-7m6h-rg42-m449); CommonMark HTML filter [GHSA-97jj-33gv-5xf9](https://github.com/advisories/GHSA-97jj-33gv-5xf9); phpseclib X25519 [GHSA-q97c-8qh3-fpc6](https://github.com/advisories/GHSA-q97c-8qh3-fpc6). | Patched to Filament 5.8.2 / CommonMark 2.10.3 / phpseclib 3.0.57; zero locked advisories, no suppression |
+| SEC-12 | Low | Laravel debug-page XSS [GHSA-jh5r-qr3c-85q8](https://github.com/advisories/GHSA-jh5r-qr3c-85q8). | Patched to 13.30.0; zero locked advisories. Hosted debug=false verification remains required |
 | SEC-13 | Medium | Copilot key/status confirmation lacks full authenticated approver/provenance/mutation linkage; workpapers complete without final independent review. | OPEN: human-controlled transitions and evidence architecture |
 
-Composer audit exit 1: **5 advisories / 4 packages**. Targeted no-install lock resolution failed at GitHub authentication, leaving lock unchanged. Platform-ignore flags were confined to that unsuccessful solver attempt; strict install/audit gates remain blocked/failed, never PASS.
+Initial main audit: **5 advisories / 4 packages**. Current cf9e537 locked audit: **PASS, zero advisories**, both locally and in cloud Finance Integrity. Only 14 required package records changed; no packages added/removed, Livewire unchanged. Exact reviewed proposal hash/job, install evidence and remaining gates are in [the review baseline](REVIEW-REPAIR-BASELINE.md). No platform-ignore flag supplies a passing strict application-install claim.
 
 [Starting-SHA Tests run](https://github.com/sohail654312-gif/finance-suite/actions/runs/34819330192), job 103897003504, failed in PHPStan on missing `App\Jobs\SyncAccountingProviderConnectionJob`. Tests/coverage skipped. Historical September audit success is stale against October advisories.
+
+Current [cf9e537 verification run](https://github.com/sohail654312-gif/finance-suite/actions/runs/37659887821), job 112924393530: Pint and PHPStan PASS at unchanged strictness; full tests PASS (1,298 cases / 4,211 assertions), but host coverage is 65.8%; the reordered 100% gate must fail until meaningful coverage is added. PR #17 remains DRAFT. There is no approved public multi-user preview. The chosen future preview boundary is one synthetic company with registration/second-tenant creation disabled and live external actions blocked; this boundary must itself be implemented and tested before deployment.
 
 Remaining scope: authentication, IDOR, all model/query/UI/file/job/import/export/AI boundaries, OAuth, callbacks/webhook signatures/idempotency, rate limits, mutation authorization and durable trail. Model events do not guard bulk SQL; races require supported transactional database tests. No Critical/High production exception is accepted.

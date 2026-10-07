@@ -2,6 +2,8 @@
 
 Repository: sohail654312-gif/finance-suite. Starting main SHA: d41aa0211fc1ec54f57dd0d0d99b81412e386256. Working branch: finance-suite/v1-completion. Date: 7 October 2026, Asia/Karachi. Main fetched before edits; clean initial checkout, no user changes present.
 
+This document records the initial main snapshot. It is historical, not the current candidate status. Subsequent cloud checks, minimum security patches, provider repair, period controls and accounting regression evidence are recorded in [REVIEW-REPAIR-BASELINE.md](REVIEW-REPAIR-BASELINE.md). The initial blockers below must not be read as current results.
+
 ## Branches and history
 
 phase-0-audit equals main. Fourteen Dependabot branches contain one dependency/workflow commit each. Thirteen are diverged (one ahead/one behind); vite-8.3.2 is one ahead/zero behind. Compare results show only Composer locks, npm manifests/locks or workflow changes, not hidden application feature work. No branches merged or overwritten.

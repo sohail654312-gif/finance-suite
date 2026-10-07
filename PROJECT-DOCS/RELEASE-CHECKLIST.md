@@ -1,24 +1,29 @@
 # Release checklist
 
-**BLOCKED. Do not merge or deploy.** Exact candidate-SHA evidence required.
+**Production acceptance withheld. Do not merge.** PR #17 remains DRAFT. Preview must wait for a verified accounting checkpoint and a tested isolated demo boundary.
 
-| Gate | Local result | Evidence / follow-up |
+Current evidence at cf9e537, 7 October 2026; exact job links/counts are in [the review baseline](REVIEW-REPAIR-BASELINE.md).
+
+| Gate | Result | Evidence / remaining work |
 |---|---|---|
-| composer validate --strict | PASS | Valid metadata, exit 0 |
-| composer audit --locked | FAIL | 5 advisories / 4 packages; High included; authenticated remediation required |
-| php artisan module:validate | BLOCKED | No vendor/autoload; required pcntl unavailable on Windows; Linux workflow added |
-| php artisan foundation:doctor | BLOCKED | Same dependency/runtime boundary |
-| vendor/bin/pint --test | BLOCKED | No vendor/bin; standalone download unsuccessful; historical main result not candidate evidence |
-| vendor/bin/phpstan analyse --no-progress --memory-limit=1G | BLOCKED locally; historical main FAIL | Missing sync job; preserve analysis level |
-| Clean-database migrations | BLOCKED | No application dependencies; historical Install result not candidate evidence |
-| Full automated tests | BLOCKED | 0 local application tests; preserve 100% host coverage threshold |
-| npm ci | PASS | 79 packages, exit 0 |
-| npm audit --omit=dev --audit-level=high | PASS | 0 vulnerabilities, exit 0 |
-| npm run build | PASS | Exit 0, 38.48 seconds; generated tracked manifest restored |
-| git diff --check | PASS | Repeat at final candidate |
-| scripts/verify-release | BLOCKED | Application dependencies, Docker/kubectl unavailable; no passing claim |
+| Composer strict validation | PASS | Local and cloud |
+| Composer locked audit | PASS | Zero advisories after minimum 14-package security patch; no ignores |
+| Strict locked dependency install | PASS cloud | Install workflow; Windows pcntl remains unsupported |
+| Module validation | PASS cloud | Finance Integrity job 112924393479 |
+| Foundation doctor | PASS cloud | Same job |
+| Pint | PASS | Standalone dirty formatter and cloud full test |
+| PHPStan | PASS cloud | Job 112924393530, unchanged level 5 |
+| Clean SQLite migrations | PASS cloud | Install run 37659887812 |
+| Focused accounting regressions | PASS cloud | 33 cases / 76 assertions |
+| Provider/schema recovery | PASS cloud | 55 cases / 156 assertions |
+| Full tests / 100% host coverage | NOT ACCEPTED | 1,298 cases / 4,211 assertions PASS; actual coverage 65.8%. Forwarded-option ordering had bypassed the threshold; corrected without exclusions |
+| npm ci / production audit / frontend build | PASS cloud | Install run; local audit zero vulnerabilities |
+| git diff --check | PASS | Repeat after final edits |
+| Docker image build | PASS cloud | Run 37659887820; registry publication skipped on PR |
+| Verified synthetic demo / hosted URL | NOT STARTED | All repair gates must pass before preview branch |
+| Production operational verification | BLOCKED | Tenancy, approvals, integrated lifecycle, providers, backup/restore and external infrastructure |
 
-Verified baseline release checks: **5/13 = 38.5%**. This measures passing check evidence, not functional maturity. Production release acceptance remains **0% (not accepted)** until all mandatory gates and lifecycle requirements pass.
+Gate counts measure verification evidence, not feature readiness. No production acceptance percentage is inferred from a green build. Local Docker is neither installed nor required.
 
 - [ ] Executed evidence for all 18 integrity requirements.
 - [ ] All 32 lifecycle steps reconcile statements, subledgers and history.
@@ -32,4 +37,4 @@ Verified baseline release checks: **5/13 = 38.5%**. This measures passing check 
 - [ ] Backup/restore, retries/idempotency, health and rollback verified.
 - [ ] Final SHA/branch/commits/files/exact test counts in closure report.
 
-Execution requires supported Linux PHP 8.5/extensions, authenticated Composer VCS access, database, Docker/kubectl and approved provider credentials. Never place credentials in tracked files/logs. Inspect draft candidate CI before recording PASS.
+Heavy Linux PHP 8.5/Docker execution runs in cloud CI. Hosted preview additionally requires suitable hosting, persistent database, HTTPS and environment-managed demo credentials. Production operations/providers remain separate unresolved gates. Never place credentials in tracked files/logs; local Docker is not required. Inspect exact candidate CI before recording PASS.

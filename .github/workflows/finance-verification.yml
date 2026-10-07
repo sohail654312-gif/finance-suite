@@ -39,8 +39,19 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Full tests with required host coverage
         if: always() && steps.install.outcome == 'success'
-        run: php artisan test --coverage --coverage-clover=coverage.xml --min=100
+        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml
+
+      - name: Verify host coverage independently
+        if: always() && hashFiles('coverage.xml') != ''
+        run: php scripts/verify-host-coverage.php coverage.xml
+
+      - name: Preserve coverage evidence
+        if: always() && hashFiles('coverage.xml') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-coverage-${{ github.run_id }}
+          path: coverage.xml
+          retention-days: 14
 
 
-# Independent evidence while the mandatory Tests workflow remains blocked by
-# dependency advisories. No formatter, analysis or coverage gate is waived.
+# Independent repair evidence. No formatter, analysis or coverage gate is waived.
