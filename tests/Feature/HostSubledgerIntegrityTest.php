@@ -4,6 +4,8 @@ use App\Models\Account;
 use App\Models\Bill;
 use App\Models\CreditMemo;
 use App\Models\Customer;
+use App\Models\DelayedCharge;
+use App\Models\Estimate;
 use App\Models\Invoice;
 use App\Models\SalesReceipt;
 use App\Models\TaxRate;
@@ -23,9 +25,11 @@ it('recalculates bill and customer credit totals after line creation, edits and 
     $rate->team_id = $this->subledgerTeam->id;
     $rate->save();
     $header = ['team_id' => $this->subledgerTeam->id, 'total_amount' => 0, 'tax_rate_id' => $taxMode === 'document' ? $rate->tax_rate_id : null];
-    $record = $document === 'bill'
-        ? Bill::factory()->create($header)
-        : CreditMemo::create($header + ['customer_id' => Customer::factory()->create()->id, 'credit_memo_date' => '2026-10-07']);
+    $record = match ($document) {
+        'bill' => Bill::factory()->create($header),
+        'credit' => CreditMemo::create($header + ['customer_id' => Customer::factory()->create()->id, 'credit_memo_date' => '2026-10-07']),
+        'estimate' => Estimate::create($header + ['customer_id' => Customer::factory()->create()->id, 'estimate_date' => '2026-10-07']),
+    };
     $record->load('items');
     $item = $record->items()->create(['description' => 'Synthetic support', 'quantity' => 2, 'unit_price' => 100, 'tax_rate_id' => $taxMode === 'line' ? $rate->tax_rate_id : null]);
     $record->refresh();
@@ -49,6 +53,9 @@ it('recalculates bill and customer credit totals after line creation, edits and 
     'untaxed customer credit' => ['credit', 'none'],
     'credit line tax' => ['credit', 'line'],
     'credit document tax' => ['credit', 'document'],
+    'untaxed estimate' => ['estimate', 'none'],
+    'estimate line tax' => ['estimate', 'line'],
+    'estimate document tax' => ['estimate', 'document'],
 ]);
 
 it('tracks supplier payment application and restores open status after a payment is removed', function (): void {
@@ -73,6 +80,7 @@ it('applies customer credit partially then fully and restores remaining credit a
     $invoice = Invoice::factory()->create(['customer_id' => $customer->id, 'team_id' => $this->subledgerTeam->id, 'total_amount' => 100]);
     $credit = CreditMemo::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'invoice_id' => $invoice->id, 'credit_memo_date' => '2026-10-07', 'total_amount' => 100, 'status' => 'open']);
     $first = $credit->applyToInvoice($invoice->id, 40, '2026-10-07');
+    expect($customer->creditMemos()->sole()->getKey())->toBe($credit->getKey());
     expect($first->invoice->id)->toBe($invoice->id)
         ->and($first->creditMemo->credit_memo_id)->toBe($credit->credit_memo_id)
         ->and($credit->amount_remaining)->toEqual(60)
@@ -118,6 +126,8 @@ it('reconciles a synthetic sales receipt and its partial refund using the origin
         ->and($receipt->customer->id)->toBe($customer->id)
         ->and($receipt->depositAccount->id)->toBe($account->id);
     $refund = $receipt->createRefund([['description' => 'One returned support unit', 'quantity' => 1, 'unit_price' => 100, 'account_id' => $account->id]], 'other');
+    expect($customer->salesReceipts()->sole()->getKey())->toBe($receipt->getKey())
+        ->and($customer->refundReceipts()->sole()->getKey())->toBe($refund->getKey());
     expect($refund->subtotal_amount)->toBe('100.00')->and($refund->tax_amount)->toBe('20.00')->and($refund->total_amount)->toBe('120.00')
         ->and($refund->isCompleted())->toBeFalse();
     $refund->process();
@@ -126,4 +136,84 @@ it('reconciles a synthetic sales receipt and its partial refund using the origin
     expect($refund->fresh()->status)->toBe('void');
     $receipt->void();
     expect($receipt->fresh()->isVoid())->toBeTrue();
+});
+
+it('converts one accepted estimate to an owned invoice with matching lines and tax', function (string $taxMode): void {
+    $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
+    $rate = new TaxRate(['name' => 'Synthetic VAT', 'rate' => 20, 'is_active' => true]);
+    $rate->team_id = $this->subledgerTeam->id;
+    $rate->save();
+    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted', 'tax_rate_id' => $taxMode === 'document' ? $rate->getKey() : null]);
+    $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 2, 'unit_price' => 100, 'tax_rate_id' => $taxMode === 'line' ? $rate->getKey() : null]);
+    $estimate->refresh();
+    $staleCopy = Estimate::findOrFail($estimate->getKey());
+    $invoice = $estimate->convertToInvoice();
+    expect($invoice->team_id)->toBe($this->subledgerTeam->id)
+        ->and($invoice->customer_id)->toBe($customer->id)
+        ->and($invoice->total_amount)->toBe('200.00')
+        ->and($invoice->getTotalWithTax())->toEqual($taxMode === 'none' ? 200 : 240)
+        ->and($invoice->items()->sole()->description)->toBe('Synthetic support')
+        ->and($estimate->fresh()->invoice_id)->toBe($invoice->id)
+        ->and($estimate->invoice->id)->toBe($invoice->id)
+        ->and($customer->estimates()->sole()->getKey())->toBe($estimate->getKey());
+    expect(fn () => $staleCopy->convertToInvoice())->toThrow(DomainException::class, 'already been converted');
+    expect(Invoice::count())->toBe(1);
+})->with(['none', 'line', 'document']);
+
+it('rejects estimate conversion before acceptance and without invoiceable line items', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
+    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07']);
+    expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'Only accepted estimates');
+    $estimate->accept();
+    expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'requires line items');
+    expect(Invoice::count())->toBe(0)->and($estimate->fresh()->invoice_id)->toBeNull();
+});
+
+it('rolls estimate conversion back when the accepted totals do not match the copied invoice', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
+    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
+    $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 1, 'unit_price' => 100]);
+    $estimate->update(['total_amount' => 999]);
+    expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'totals must match');
+    expect(Invoice::count())->toBe(0)->and($estimate->fresh()->invoice_id)->toBeNull();
+});
+
+it('rejects an estimate linked to a customer owned by another company', function (): void {
+    $other = User::factory()->create();
+    $otherTeam = app(TeamManagementService::class)->createPersonalTeamForUser($other);
+    $customer = Customer::factory()->create(['team_id' => $otherTeam->id]);
+    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => $customer->id, 'estimate_date' => '2026-10-07', 'status' => 'accepted']);
+    $estimate->items()->create(['description' => 'Synthetic support', 'quantity' => 1, 'unit_price' => 100]);
+    expect(fn () => $estimate->convertToInvoice())->toThrow(DomainException::class, 'same company');
+    expect(Invoice::count())->toBe(0);
+});
+
+it('keeps estimate response timestamps and expiration behavior consistent', function (): void {
+    $this->travelTo(now()->setDate(2026, 10, 7)->startOfDay());
+    $estimate = Estimate::create(['team_id' => $this->subledgerTeam->id, 'customer_id' => Customer::factory()->create()->id, 'estimate_date' => '2026-10-07', 'expiration_date' => '2026-10-10']);
+    expect($estimate->is_expired)->toBeFalse()->and($estimate->days_until_expiration)->toEqual(3);
+    $estimate->markAsSent();
+    expect($estimate->sent_at)->not->toBeNull()->and($estimate->status)->toBe('sent');
+    $estimate->markAsViewed();
+    $viewedAt = $estimate->viewed_at->toIso8601String();
+    $this->travel(1)->days();
+    $estimate->markAsViewed();
+    expect($estimate->viewed_at->toIso8601String())->toBe($viewedAt);
+    $estimate->decline('Synthetic proposal declined');
+    expect($estimate->fresh()->decline_reason)->toBe('Synthetic proposal declined');
+    $estimate->update(['expiration_date' => '2026-10-01', 'status' => 'sent']);
+    expect($estimate->is_expired)->toBeTrue()->and($estimate->days_until_expiration)->toBeLessThan(0);
+    $estimate->accept();
+    expect($estimate->is_expired)->toBeFalse()->and($estimate->accepted_at)->not->toBeNull();
+    $estimate->update(['expiration_date' => null]);
+    expect($estimate->days_until_expiration)->toBeNull();
+});
+
+it('keeps a delayed customer charge attached to the actual customer primary key', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
+    $other = Customer::factory()->create(['team_id' => $this->subledgerTeam->id]);
+    $charge = DelayedCharge::create(['customer_id' => $customer->id, 'charge_date' => '2026-10-07', 'description' => 'Synthetic future work', 'quantity' => 2, 'unit_price' => 50]);
+    expect($charge->amount)->toBe('100.00')
+        ->and($customer->delayedCharges()->sole()->getKey())->toBe($charge->getKey())
+        ->and($other->delayedCharges()->count())->toBe(0);
 });
