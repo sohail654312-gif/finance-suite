@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\XeroConnection;
+use App\Services\TeamManagementService;
 use App\Services\XeroService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -19,11 +20,16 @@ use Tests\TestCase;
 
 class XeroEntitiesSyncTest extends TestCase
 {
+    private User $user;
+
     use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->user = User::factory()->create();
+        app(TeamManagementService::class)->createPersonalTeamForUser($this->user);
+        $this->user = $this->user->fresh();
         config()->set('services.xero', [
             'client_id' => 'c', 'client_secret' => 's', 'redirect_uri' => 'https://app.test/cb',
             'authorization_url' => 'https://login.xero.com/identity/connect/authorize',
@@ -36,7 +42,8 @@ class XeroEntitiesSyncTest extends TestCase
     private function connection(): XeroConnection
     {
         return XeroConnection::create([
-            'user_id' => User::factory()->create()->id,
+            'user_id' => $this->user->id,
+            'team_id' => $this->user->current_team_id,
             'tenant_id' => 'tenant-123',
             'access_token' => 'at',
             'refresh_token' => 'rt',
@@ -104,7 +111,7 @@ class XeroEntitiesSyncTest extends TestCase
 
     public function test_pull_payments(): void
     {
-        $invoice = Invoice::factory()->create(['xero_id' => '500']);
+        $invoice = Invoice::factory()->create(['xero_id' => '500', 'team_id' => $this->user->current_team_id]);
         Http::fake(['*/api.xro/2.0/Payments*' => Http::response(['Payments' => [
             ['PaymentID' => 'xp-9', 'Amount' => 150, 'Date' => '2026-06-10', 'Invoice' => ['InvoiceID' => '500']],
         ]], 200)]);
@@ -115,7 +122,7 @@ class XeroEntitiesSyncTest extends TestCase
 
     public function test_pull_bank_transactions_preserves_provider_identity_and_sign(): void
     {
-        $account = Account::factory()->create(['xero_id' => 'bank-account-1']);
+        $account = Account::factory()->create(['xero_id' => 'bank-account-1', 'team_id' => $this->user->current_team_id]);
         Http::fake(['*/api.xro/2.0/BankTransactions*' => Http::response(['BankTransactions' => [
             ['BankTransactionID' => 'bank-tx-1', 'Type' => 'SPEND', 'Total' => 25.50, 'Date' => '2026-09-05', 'Reference' => 'Office supplies', 'BankAccount' => ['AccountID' => 'bank-account-1']],
         ]], 200)]);

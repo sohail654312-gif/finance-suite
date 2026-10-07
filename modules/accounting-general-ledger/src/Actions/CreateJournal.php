@@ -30,7 +30,7 @@ final class CreateJournal
             if ($accounts->count() !== $accountIds->count() || $accounts->contains(fn (Account $account): bool => (int) $account->legal_entity_id !== (int) $book->getAttribute('legal_entity_id'))) {
                 throw new InvalidJournal('Every journal line must reference an account in the book legal entity.');
             }
-            if (($attributes['status'] ?? JournalStatus::Draft->value) !== JournalStatus::Draft->value || isset($attributes['posted_by']) || isset($attributes['posted_at'])) {
+            if ((array_key_exists('status', $attributes) && $attributes['status'] !== JournalStatus::Draft->value) || array_key_exists('posted_by', $attributes) || array_key_exists('posted_at', $attributes)) {
                 throw new InvalidJournal('New journals must be drafts without posting metadata.');
             }
             $debits = '0.00';
@@ -54,6 +54,11 @@ final class CreateJournal
             }
             $entry = JournalEntry::create($attributes + ['journal_type' => ($attributes['journal_type'] ?? JournalType::General->value), 'status' => JournalStatus::Draft->value]);
             $entry->lines()->createMany($lines);
+            foreach ($entry->lines()->orderBy('id')->get() as $index => $stored) {
+                if (bccomp((string) $stored->debit, (string) ($lines[$index]['debit'] ?? '0'), 2) !== 0 || bccomp((string) $stored->credit, (string) ($lines[$index]['credit'] ?? '0'), 2) !== 0) {
+                    throw new InvalidJournal('The database cannot preserve this journal amount exactly.');
+                }
+            }
             DB::afterCommit(fn () => event(new JournalCreated($entry->fresh('lines'))));
 
             return $entry->load('lines');

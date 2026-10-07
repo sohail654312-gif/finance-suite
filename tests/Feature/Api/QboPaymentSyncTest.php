@@ -78,7 +78,7 @@ class QboPaymentSyncTest extends TestCase
 
     public function test_pull_payments_creates_local_payments(): void
     {
-        $invoice = Invoice::factory()->create(['qbo_id' => '500']);
+        $invoice = Invoice::factory()->create(['qbo_id' => '500', 'team_id' => $this->user->current_team_id]);
 
         Http::fake(['*/v3/company/*/query*' => Http::response([
             'QueryResponse' => ['Payment' => [

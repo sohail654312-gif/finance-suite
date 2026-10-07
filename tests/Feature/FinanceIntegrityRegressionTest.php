@@ -42,6 +42,38 @@ it('rejects amounts that would be silently rounded or lose a cent in float arith
     'scientific notation' => ['1e2', '100.00'],
 ]);
 
+it('rolls back balanced amounts that SQLite cannot store without losing cents', function (): void {
+    expect(fn () => app(CreateJournal::class)->handle(['book_id' => $this->book->id, 'entry_date' => '2026-01-16'], [
+        ['account_id' => $this->cash->id, 'debit' => '10000000000000001.01'],
+        ['account_id' => $this->revenue->id, 'credit' => '10000000000000001.01'],
+    ]))->toThrow(InvalidJournal::class);
+    expect(JournalEntry::count())->toBe(1);
+});
+
+it('requires configured periods unless non-production setup mode is explicit', function (): void {
+    config()->set('accounting-periods.setup_mode', false);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+    expect($this->journal->fresh()->status)->toBe(JournalStatus::Draft);
+    config()->set('accounting-periods.setup_mode', true);
+    expect(app(PostJournal::class)->handle($this->journal)->status)->toBe(JournalStatus::Posted);
+});
+
+it('never allows unconfigured periods in production even with setup enabled', function (): void {
+    config()->set('accounting-periods.setup_mode', true);
+    app()->detectEnvironment(fn (): string => 'production');
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidPeriodTransition::class);
+});
+
+it('revalidates individual draft line amounts before posting', function (string $debit, string $credit): void {
+    $this->journal->lines()->first()->update(['debit' => $debit, 'credit' => $credit]);
+    expect(fn () => app(PostJournal::class)->handle($this->journal))->toThrow(InvalidJournal::class);
+    expect($this->journal->fresh()->status)->toBe(JournalStatus::Draft);
+})->with([
+    'both sides positive' => ['200.00', '100.00'],
+    'negative debit' => ['-100.00', '0.00'],
+    'empty line' => ['0.00', '0.00'],
+]);
+
 it('rejects caller supplied posting state when creating a journal', function (): void {
     expect(fn () => app(CreateJournal::class)->handle([
         'book_id' => $this->book->id, 'entry_date' => '2026-01-16', 'status' => 'posted',

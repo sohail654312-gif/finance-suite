@@ -22,6 +22,8 @@ jobs:
           coverage: xdebug
       - name: Validate Composer metadata
         run: composer validate --strict
+      - name: Audit locked dependencies
+        run: composer audit --locked
       - name: Prepare environment
         run: cp .env.testing .env
       - name: Install locked dependencies
@@ -33,47 +35,17 @@ jobs:
         run: php artisan key:generate
       - name: Verify accounting integrity regressions
         run: php artisan test --compact tests/Feature/FinanceIntegrityRegressionTest.php
+      - name: Verify provider recovery and schema integrity
+        run: >-
+          php artisan test --compact tests/Feature/ProviderIntegrityRecoveryTest.php
+          tests/Feature/SchemaConsistencyTest.php tests/Feature/Api/QuickBooksSyncTest.php
+          tests/Feature/Api/QboAccountBillSyncTest.php tests/Feature/Api/QboPaymentSyncTest.php
+          tests/Feature/Api/XeroSyncTest.php tests/Feature/Api/XeroEntitiesSyncTest.php tests/Feature/Api/SageSyncTest.php
       - name: Validate modules
         run: php artisan module:validate
       - name: Diagnose foundation
         run: php artisan foundation:doctor
 
-  dependency-resolution:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
-        with:
-          php-version: '8.5'
-          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
-      - name: Resolve minimal security updates for review
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ github.token }}"}}'
-        run: >-
-          composer update 'filament/*' laravel/framework league/commonmark phpseclib/phpseclib
-          --with filament/actions:5.8.2 --with filament/filament:5.8.2
-          --with filament/forms:5.8.2 --with filament/infolists:5.8.2
-          --with filament/notifications:5.8.2 --with filament/query-builder:5.8.2
-          --with filament/schemas:5.8.2 --with filament/spatie-laravel-settings-plugin:5.8.2
-          --with filament/support:5.8.2 --with filament/tables:5.8.2 --with filament/widgets:5.8.2
-          --with laravel/framework:13.30.0 --with league/commonmark:2.10.3 --with phpseclib/phpseclib:3.0.57
-          --with-all-dependencies --minimal-changes --no-install --no-scripts --no-interaction --verbose
-      - name: Validate resolved metadata
-        run: composer validate --strict
-      - name: Audit resolved dependencies
-        run: composer audit --locked
-      - name: Export reviewable lock proposal
-        run: |
-          sha256sum composer.lock
-          echo FINANCE_LOCK_BEGIN
-          gzip -n -c composer.lock | base64
-          echo FINANCE_LOCK_END
-
-# The resolver proposes a lock file only. It cannot push, merge, install packages,
-# modify secrets, or waive audit failures. Any proposal requires diff review and
-# the complete unchanged verification stack before acceptance.
-
-# This adds focused Linux evidence. Existing Tests, Install and Docker checks,
-# the dependency audit and the 100% host coverage gate remain mandatory.
+# The read-only security proposal is now reviewed and applied. Its exact cloud
+# evidence and SHA-256 are recorded in REVIEW-REPAIR-BASELINE.md. Locked audit
+# above and all existing Tests, Install, Docker and full verification gates remain.

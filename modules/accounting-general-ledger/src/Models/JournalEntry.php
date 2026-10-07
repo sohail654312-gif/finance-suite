@@ -80,18 +80,29 @@ class JournalEntry extends Model
 
     public function isBalanced(): bool
     {
-        $totals = $this->lines()->selectRaw('COALESCE(SUM(debit),0) debits, COALESCE(SUM(credit),0) credits')->first();
+        $debits = '0.00';
+        $credits = '0.00';
+        $lines = $this->lines()->get();
+        foreach ($lines as $line) {
+            $debit = (string) $line->debit;
+            $credit = (string) $line->credit;
+            if (! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $debit) || ! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $credit) || (bccomp($debit, '0', 2) === 1) === (bccomp($credit, '0', 2) === 1)) {
+                return false;
+            }
+            $debits = bcadd($debits, $debit, 2);
+            $credits = bcadd($credits, $credit, 2);
+        }
 
-        return bccomp((string) $totals?->getAttribute('debits'), (string) $totals?->getAttribute('credits'), 2) === 0 && $this->lines()->count() >= 2;
+        return $lines->count() >= 2 && bccomp($debits, $credits, 2) === 0;
     }
 
     public function totalDebits(): string
     {
-        return (string) $this->lines()->sum('debit');
+        return $this->lines()->get()->reduce(fn (string $total, JournalLine $line): string => bcadd($total, (string) $line->debit, 2), '0.00');
     }
 
     public function totalCredits(): string
     {
-        return (string) $this->lines()->sum('credit');
+        return $this->lines()->get()->reduce(fn (string $total, JournalLine $line): string => bcadd($total, (string) $line->credit, 2), '0.00');
     }
 }

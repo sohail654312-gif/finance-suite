@@ -11,6 +11,11 @@ use Liberu\Accounting\Periods\Listeners\EnsurePostingPeriodIsOpen;
 
 final class AccountingPeriodsServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__.'/../config/accounting-periods.php', 'accounting-periods');
+    }
+
     public function boot(): void
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');

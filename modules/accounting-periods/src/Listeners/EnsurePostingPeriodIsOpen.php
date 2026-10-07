@@ -14,10 +14,11 @@ final class EnsurePostingPeriodIsOpen
     {
         $periods = AccountingPeriod::query()->where('book_id', $event->bookId)
             ->orderBy('id')->lockForUpdate()->get();
-        // Unconfigured books preserve the existing modular setup workflow. V1
-        // acceptance still requires a complete fiscal calendar for every book.
         if ($periods->isEmpty()) {
-            return;
+            if (config('accounting-periods.setup_mode', false) && ! app()->isProduction()) {
+                return;
+            }
+            throw new InvalidPeriodTransition('Configure an accounting period before posting. Unconfigured books are restricted to explicit non-production setup mode.');
         }
         $matching = $periods->filter(fn (AccountingPeriod $period): bool => $event->entryDate >= $period->starts_on->toDateString() && $event->entryDate <= $period->ends_on->toDateString());
         if ($matching->count() !== 1) {
