@@ -13,7 +13,7 @@ uses(RefreshDatabase::class);
 
 function accountingCoreApiUser(): User
 {
-    $user = accountingCoreApiUser();
+    $user = User::factory()->create();
     app(TeamManagementService::class)->createPersonalTeamForUser($user);
 
     return $user->refresh();
