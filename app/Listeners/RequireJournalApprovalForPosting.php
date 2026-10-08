@@ -33,7 +33,7 @@ final class RequireJournalApprovalForPosting
             ->lockForUpdate()
             ->orderByDesc('minimum_amount')
             ->get()
-            ->first(fn (ApprovalThreshold $candidate): bool => bccomp($amount, (string) $candidate->minimum_amount, 2) >= 0);
+            ->first(fn (ApprovalThreshold $candidate): bool => bccomp($amount, (string) $candidate->getAttribute('minimum_amount'), 2) >= 0);
 
         if (! $threshold instanceof ApprovalThreshold) {
             return;
@@ -59,12 +59,12 @@ final class RequireJournalApprovalForPosting
         $qualifiedApprovals = $approval->decisions()
             ->where('decision', DecisionType::Approved->value)
             ->get()
-            ->filter(fn ($decision): bool => $decision->actor_ref !== $approval->preparer_ref)
-            ->filter(fn ($decision): bool => data_get($decision->metadata, 'reviewer_role') === $threshold->reviewer_role)
+            ->filter(fn ($decision): bool => $decision->getAttribute('actor_ref') !== $approval->preparer_ref)
+            ->filter(fn ($decision): bool => data_get($decision->getAttribute('metadata'), 'reviewer_role') === $threshold->getAttribute('reviewer_role'))
             ->unique('actor_ref')
             ->count();
 
-        if ($qualifiedApprovals < $threshold->required_approvals) {
+        if ($qualifiedApprovals < $threshold->getAttribute('required_approvals')) {
             throw new InvalidJournal('The journal does not have enough qualified approvals.');
         }
 
