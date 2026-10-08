@@ -7,6 +7,7 @@ namespace Liberu\Accounting\GeneralLedger\Actions;
 use Illuminate\Support\Facades\DB;
 use Liberu\Accounting\Core\Events\PostingToBook;
 use Liberu\Accounting\GeneralLedger\Enums\JournalStatus;
+use Liberu\Accounting\GeneralLedger\Events\AuthorizingJournalPost;
 use Liberu\Accounting\GeneralLedger\Events\JournalPosted;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
 use Liberu\Accounting\GeneralLedger\Models\JournalEntry;
@@ -36,6 +37,7 @@ final class PostJournal
                     throw new InvalidJournal('Every journal account must be active and permit manual entries.');
                 }
             }
+            event(new AuthorizingJournalPost($journal, $actor));
             $journal->update(['status' => JournalStatus::Posted, 'posted_by' => $actor, 'posted_at' => now()]);
             DB::afterCommit(fn () => event(new JournalPosted($journal->fresh('lines'), $actor)));
 
