@@ -34,7 +34,9 @@ jobs:
       - name: Generate application key
         run: php artisan key:generate
       - name: Verify accounting integrity regressions
-        run: php artisan test --compact tests/Feature/FinanceIntegrityRegressionTest.php
+        run: >-
+          php artisan test --compact tests/Feature/FinanceIntegrityRegressionTest.php
+          tests/Feature/JournalApprovalPostingIntegrityTest.php
       - name: Verify provider recovery and schema integrity
         run: >-
           php artisan test --compact tests/Feature/ProviderIntegrityRecoveryTest.php
