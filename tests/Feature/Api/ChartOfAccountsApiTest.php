@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Liberu\Accounting\ChartOfAccounts\Models\Account;
@@ -15,9 +16,18 @@ beforeEach(function (): void {
     $this->app->register(ChartOfAccountsApiServiceProvider::class, force: true);
 });
 
-it('creates, updates, lists, and archives scoped chart accounts', function (): void {
+function chartOfAccountsApiUser(): User
+{
     $user = User::factory()->create();
+    app(TeamManagementService::class)->createPersonalTeamForUser($user);
+
+    return $user->refresh();
+}
+
+it('creates, updates, lists, and archives scoped chart accounts', function (): void {
+    $user = chartOfAccountsApiUser();
     $entity = LegalEntity::query()->create([
+        'team_id' => $user->current_team_id,
         'name' => 'Chart Entity',
         'currency_code' => 'GBP',
         'accounting_basis' => 'accrual',
@@ -48,13 +58,16 @@ it('creates, updates, lists, and archives scoped chart accounts', function (): v
 });
 
 it('rejects a parent from another legal entity', function (): void {
+    $user = chartOfAccountsApiUser();
     $entity = LegalEntity::query()->create([
+        'team_id' => $user->current_team_id,
         'name' => 'One', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual',
     ]);
     $otherEntity = LegalEntity::query()->create([
+        'team_id' => $user->current_team_id,
         'name' => 'Two', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual',
     ]);
-    Sanctum::actingAs(User::factory()->create(), ['accounting.chart.write']);
+    Sanctum::actingAs($user, ['accounting.chart.write']);
 
     $parent = Account::query()->create([
         'legal_entity_id' => $otherEntity->id,
@@ -68,7 +81,9 @@ it('rejects a parent from another legal entity', function (): void {
 });
 
 it('rejects duplicate codes and mismatched normal balances', function (): void {
+    $user = chartOfAccountsApiUser();
     $entity = LegalEntity::query()->create([
+        'team_id' => $user->current_team_id,
         'name' => 'Duplicate Chart Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual',
     ]);
     Sanctum::actingAs(User::factory()->create(), ['accounting.chart.write']);
@@ -79,12 +94,14 @@ it('rejects duplicate codes and mismatched normal balances', function (): void {
 });
 
 it('returns a hierarchy tree for a legal entity', function (): void {
+    $user = chartOfAccountsApiUser();
     $entity = LegalEntity::query()->create([
+        'team_id' => $user->current_team_id,
         'name' => 'Tree Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual',
     ]);
     $root = Account::query()->create(['legal_entity_id' => $entity->id, 'code' => '1000', 'name' => 'Assets', 'type' => 'asset', 'normal_balance' => 'debit']);
     Account::query()->create(['legal_entity_id' => $entity->id, 'parent_id' => $root->id, 'code' => '1100', 'name' => 'Cash', 'type' => 'asset', 'normal_balance' => 'debit']);
-    Sanctum::actingAs(User::factory()->create(), ['accounting.chart.read']);
+    Sanctum::actingAs($user, ['accounting.chart.read']);
 
     $this->getJson('/api/v1/accounting/chart-of-accounts/accounts/tree?legal_entity_id='.$entity->id)->assertOk()->assertJsonPath('data.0.children.0.attributes.code', '1100');
 });
