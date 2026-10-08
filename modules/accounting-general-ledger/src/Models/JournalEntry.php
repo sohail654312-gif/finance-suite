@@ -22,12 +22,19 @@ class JournalEntry extends Model
 {
     protected $table = 'accounting_journal_entries';
 
-    protected $fillable = ['book_id', 'entry_number', 'entry_date', 'journal_type', 'status', 'description', 'source_type', 'source_id', 'reversal_of_id', 'posted_by', 'posted_at', 'metadata'];
+    protected $fillable = ['team_id', 'book_id', 'entry_number', 'entry_date', 'journal_type', 'status', 'description', 'source_type', 'source_id', 'reversal_of_id', 'posted_by', 'posted_at', 'metadata'];
 
     protected $casts = ['entry_date' => 'date', 'posted_at' => 'datetime', 'metadata' => 'array', 'status' => JournalStatus::class, 'journal_type' => JournalType::class];
 
     protected static function booted(): void
     {
+        static::creating(function (self $journal): void {
+            $book = Book::query()->find($journal->book_id);
+            if ($book === null) {
+                throw new \LogicException('A journal requires an existing book.');
+            }
+            $journal->setAttribute('team_id', $book->getAttribute('team_id'));
+        });
         static::creating(function (self $journal): void {
             if (blank($journal->entry_number)) {
                 $year = $journal->entry_date?->format('Y') ?? now()->format('Y');
@@ -37,6 +44,13 @@ class JournalEntry extends Model
             }
         });
         static::updating(function (self $journal): void {
+            if ($journal->isDirty('team_id')) {
+                throw new \LogicException('Journal ownership cannot be changed after creation.');
+            }
+            if ($journal->isDirty('book_id')) {
+                throw new \LogicException('Journal book ownership is immutable after creation.');
+            }
+
             $original = $journal->getRawOriginal('status');
             if ($original === JournalStatus::Draft->value && $journal->isDirty('status')) {
                 $allowed = ['status', 'posted_by', 'posted_at', 'updated_at'];
