@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "category": "presentation",
   "provider": "Liberu\\Accounting\\ChartOfAccountsApi\\ChartOfAccountsApiServiceProvider",
-  "requires": { "php": "^8.5", "laravel": "^13.0", "packages": { "liberusoftware/module-accounting-chart-of-accounts": "^1.0" } },
+  "requires": { "php": "^8.5", "laravel": "^13.0", "packages": { "liberusoftware/module-accounting-chart-of-accounts": "^1.0", "liberusoftware/module-accounting-core": "^1.0" } },
   "capabilities": ["accounting.chart-of-accounts.api"],
   "default_enabled": false,
   "features": ["Versioned account CRUD API", "Hierarchy validation", "Sanctum authentication", "OpenAPI contract"]

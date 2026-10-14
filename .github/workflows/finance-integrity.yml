@@ -33,6 +33,8 @@ jobs:
         run: git restore --source=HEAD --worktree -- modules themes
       - name: Generate application key
         run: php artisan key:generate
+      - name: Verify package architecture boundaries
+        run: php artisan test --compact tests/Architecture/ModuleBoundariesTest.php
       - name: Verify accounting integrity regressions
         run: >-
           php artisan test --compact tests/Feature/FinanceIntegrityRegressionTest.php

@@ -9839,12 +9839,13 @@
             "dist": {
                 "type": "path",
                 "url": "modules/accounting-chart-of-accounts-api",
-                "reference": "eb238f666fa778d940d9d4bd5dedd296c3cc4970"
+                "reference": "56b9a2e91e9c956f2237dd6962974f8e53c2e542"
             },
             "require": {
                 "laravel/framework": "^13.0",
                 "laravel/sanctum": "^4.0",
                 "liberusoftware/module-accounting-chart-of-accounts": "^1.0",
+                "liberusoftware/module-accounting-core": "^1.0",
                 "php": "^8.5"
             },
             "require-dev": {
@@ -14289,11 +14290,12 @@
             "dist": {
                 "type": "path",
                 "url": "modules/accounting-general-ledger-api",
-                "reference": "b14da2d19fd7621e44845a0aae7e7c6d91d77aff"
+                "reference": "04fbc9b43057d7823135f33421784998476600f2"
             },
             "require": {
                 "laravel/framework": "^13.0",
                 "laravel/sanctum": "^4.0",
+                "liberusoftware/module-accounting-core": "^1.0",
                 "liberusoftware/module-accounting-general-ledger": "^1.0",
                 "php": "^8.5"
             },
@@ -37643,13 +37645,13 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": [],
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.5"
     },
-    "platform-dev": {},
+    "platform-dev": [],
     "platform-overrides": {
         "php": "8.5"
     },
