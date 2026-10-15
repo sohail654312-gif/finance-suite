@@ -55,7 +55,7 @@ class JournalEntryLine extends Model
 
         foreach ($ids as $id) {
             if ($id > 0 && JournalEntry::query()->whereKey($id)->where('is_posted', true)->exists()) {
-                throw new \\DomainException('Posted journal entry lines are immutable.');
+                throw new \DomainException('Posted journal entry lines are immutable.');
             }
         }
     }
