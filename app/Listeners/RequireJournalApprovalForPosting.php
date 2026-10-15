@@ -51,7 +51,14 @@ final class RequireJournalApprovalForPosting
             throw new InvalidJournal('This journal requires an approved posting authorization.');
         }
 
-        if ($approval->journal_type !== $journal->journal_type->value
+        // An approval for the right amount but the wrong currency is not
+        // authorization to post this book's journal. Always use the entity's
+        // persisted currency, not a caller-supplied posting attribute.
+        $book = $journal->book()->with('legalEntity')->first();
+        $bookCurrency = $book?->legalEntity?->getAttribute('currency_code');
+        if (! is_string($bookCurrency) || $bookCurrency === ''
+            || strtoupper((string) $approval->currency) !== strtoupper($bookCurrency)
+            || $approval->journal_type !== $journal->journal_type->value
             || bccomp((string) $approval->amount, $amount, 2) !== 0) {
             throw new InvalidJournal('The journal approval does not match the posting candidate.');
         }
