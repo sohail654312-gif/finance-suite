@@ -61,6 +61,7 @@ class CollectionService
             ->with(['invoices' => function ($query) use ($teamId): void {
                 $query->where('team_id', $teamId)
                     ->where('payment_status', 'pending')
+                    ->where('due_date', '<', Carbon::today())
                     ->orderBy('due_date');
             }])
             ->get()
