@@ -2,9 +2,12 @@
 
 use App\Models\Account;
 use App\Models\Budget;
+use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\AgingReportService;
 use App\Services\BudgetService;
 use App\Services\GeneralLedgerService;
 use App\Services\TeamManagementService;
@@ -93,4 +96,67 @@ it('forecasts from the latest twelve transactions rather than all history', func
     expect((float) app(BudgetService::class)->generateForecast($budget))->toBe(65.0)
         ->and($budget->fresh()->forecast_amount)->toBe('65.00')
         ->and($budget->fresh()->forecast_method)->toBe('moving_average');
+});
+
+
+it('scopes receivables aging to invoices whose company and customer are both owned', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->reportTeam->id]);
+    $otherUser = User::factory()->create();
+    $otherTeam = app(TeamManagementService::class)->createPersonalTeamForUser($otherUser);
+    $otherCustomer = Customer::factory()->create(['team_id' => $otherTeam->id]);
+
+    Invoice::factory()->create([
+        'team_id' => $this->reportTeam->id,
+        'customer_id' => $customer->getKey(),
+        'due_date' => '2026-10-06',
+        'total_amount' => '100.00',
+    ]);
+    Invoice::factory()->create([
+        'team_id' => $otherTeam->id,
+        'customer_id' => $otherCustomer->getKey(),
+        'due_date' => '2026-10-06',
+        'total_amount' => '900.00',
+    ]);
+    Invoice::factory()->create([
+        'team_id' => $this->reportTeam->id,
+        'customer_id' => $otherCustomer->getKey(),
+        'due_date' => '2026-10-06',
+        'total_amount' => '700.00',
+    ]);
+
+    $aging = app(AgingReportService::class)->generateAgingReport();
+    expect($aging)->toHaveCount(1)
+        ->and($aging->get($customer->getKey())['aging']['1_30'])->toBe(100.0)
+        ->and($aging->get($customer->getKey())['total_due'])->toBe(100.0);
+});
+
+it('classifies future and overdue receivables into the proper nonoverlapping age bands', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->reportTeam->id]);
+    foreach ([-5, 1, 31, 61, 91] as $daysOverdue) {
+        Invoice::factory()->create([
+            'team_id' => $this->reportTeam->id,
+            'customer_id' => $customer->getKey(),
+            'due_date' => now()->startOfDay()->subDays($daysOverdue)->toDateString(),
+            'total_amount' => '10.00',
+        ]);
+    }
+
+    $row = app(AgingReportService::class)->generateAgingReport()->get($customer->getKey());
+    expect($row['aging'])->toBe([
+        'current' => 10.0,
+        '1_30' => 10.0,
+        '31_60' => 10.0,
+        '61_90' => 10.0,
+        'over_90' => 10.0,
+    ])->and($row['total_due'])->toBe(50.0);
+});
+
+it('fails closed when the reporting user has no selected company', function (): void {
+    $customer = Customer::factory()->create(['team_id' => $this->reportTeam->id]);
+    Invoice::factory()->create(['team_id' => $this->reportTeam->id, 'customer_id' => $customer->getKey()]);
+
+    $this->reportUser->forceFill(['current_team_id' => null])->save();
+    $this->actingAs($this->reportUser->fresh());
+
+    expect(app(AgingReportService::class)->generateAgingReport())->toBeEmpty();
 });
