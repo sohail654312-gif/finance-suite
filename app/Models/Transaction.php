@@ -121,7 +121,7 @@ class Transaction extends Model
 
     public function categories()
     {
-        return $this->belongsToMany(Category::class);
+        return $this->belongsToMany(Category::class, 'category_transaction', 'transaction_id', 'category_id', 'transaction_id', 'id');
     }
 
     /**
@@ -129,7 +129,7 @@ class Transaction extends Model
      */
     public function inventoryTransactions(): HasMany
     {
-        return $this->hasMany(InventoryTransaction::class);
+        return $this->hasMany(InventoryTransaction::class, 'transaction_id', 'transaction_id');
     }
 
     public function bankConnection()

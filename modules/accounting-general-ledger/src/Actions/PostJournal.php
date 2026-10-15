@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Liberu\Accounting\GeneralLedger\Actions;
 
 use Illuminate\Support\Facades\DB;
+use Liberu\Accounting\Core\Events\PostingToBook;
 use Liberu\Accounting\GeneralLedger\Enums\JournalStatus;
+use Liberu\Accounting\GeneralLedger\Events\AuthorizingJournalPost;
 use Liberu\Accounting\GeneralLedger\Events\JournalPosted;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
 use Liberu\Accounting\GeneralLedger\Models\JournalEntry;
@@ -16,7 +18,7 @@ final class PostJournal
     public function handle(JournalEntry $journal, ?string $actor = null): JournalEntry
     {
         return DB::transaction(function () use ($journal, $actor): JournalEntry {
-            $journal = JournalEntry::whereKey($journal->getKey())->firstOrFail();
+            $journal = JournalEntry::whereKey($journal->getKey())->lockForUpdate()->firstOrFail();
             $journal->load('lines.account');
             if ($journal->status !== JournalStatus::Draft) {
                 throw new InvalidJournal('Only draft journals may be posted.');
@@ -24,13 +26,18 @@ final class PostJournal
             if (! $journal->isBalanced()) {
                 throw new InvalidJournal('Journal must be balanced before posting.');
             }
+            event(new PostingToBook((int) $journal->book_id, $journal->entry_date->toDateString()));
             foreach ($journal->lines as $line) {
                 /** @var JournalLine $line */
                 $account = $line->account()->lockForUpdate()->firstOrFail();
+                if ((string) $account->legal_entity_id !== (string) $journal->book->legal_entity_id) {
+                    throw new InvalidJournal('Every journal account must belong to the book legal entity.');
+                }
                 if (! $account->is_active || ! $account->allow_manual_entry) {
                     throw new InvalidJournal('Every journal account must be active and permit manual entries.');
                 }
             }
+            event(new AuthorizingJournalPost($journal, $actor));
             $journal->update(['status' => JournalStatus::Posted, 'posted_by' => $actor, 'posted_at' => now()]);
             DB::afterCommit(fn () => event(new JournalPosted($journal->fresh('lines'), $actor)));
 

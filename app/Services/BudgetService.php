@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Budget;
-use App\Models\Transaction;
 
 class BudgetService
 {
@@ -22,13 +21,10 @@ class BudgetService
 
     public function getBudgetComparison($startDate, $endDate)
     {
-        // Tenant-scope by team; nested OR keeps the team_id filter from being
-        // short-circuited by the date match (AND binds tighter than OR).
+        // Include budgets spanning the requested range as well as partial overlaps.
         $budgets = Budget::where('team_id', $this->scopedTeamId())
-            ->where(function ($query) use ($startDate, $endDate): void {
-                $query->whereBetween('start_date', [$startDate, $endDate])
-                    ->orWhereBetween('end_date', [$startDate, $endDate]);
-            })
+            ->where('start_date', '<=', $endDate)
+            ->where('end_date', '>=', $startDate)
             ->get();
 
         return $budgets->map(function ($budget): array {
@@ -85,9 +81,7 @@ class BudgetService
             return 0;
         }
 
-        return (float) Transaction::where('account_id', $account->id)
-            ->whereBetween('transaction_date', [$budget->start_date, $budget->end_date])
-            ->sum('amount');
+        return $budget->getActualAmount();
     }
 
     private function calculatePercentageUsed(float|int $actualAmount, $plannedAmount): float|int

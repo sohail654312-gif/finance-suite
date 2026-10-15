@@ -26,8 +26,16 @@ class JournalLine extends Model
     protected static function booted(): void
     {
         static::saving(function (self $line): void {
-            if ($line->exists && $line->journalEntry()->where('status', '!=', 'draft')->exists()) {
+            if ($line->exists && $line->isDirty('journal_entry_id')) {
+                throw new \LogicException('Journal lines cannot be moved between journals.');
+            }
+            if ($line->journalEntry()->where('status', '!=', 'draft')->exists()) {
                 throw new \LogicException('Lines of posted or reversed journals are immutable.');
+            }
+            $journal = $line->journalEntry()->with('book')->firstOrFail();
+            $account = $line->account()->firstOrFail();
+            if ((string) $account->legal_entity_id !== (string) $journal->book->legal_entity_id) {
+                throw new \LogicException('Journal accounts must belong to the book legal entity.');
             }
         });
         static::deleting(function (self $line): void {

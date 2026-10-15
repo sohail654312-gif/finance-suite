@@ -54,12 +54,16 @@ class ConsolidationServiceTest extends TestCase
             'user_id' => $this->user->id,
             'entry_date' => '2026-06-15',
             'counterparty_team_id' => $counterpartyId,
-            'is_posted' => true,
+            'is_posted' => false,
         ]);
 
         foreach ($lines as [$accountId, $debit, $credit]) {
             $entry->lines()->create(['account_id' => $accountId, 'debit_amount' => $debit, 'credit_amount' => $credit]);
         }
+
+        // Reporting fixture: prepare the full journal while draft. Never insert
+        // lines into a journal that is already posted.
+        $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
     }
 
     private function group(Team ...$members): ConsolidationGroup

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Liberu\Accounting\Core\Models\Book;
@@ -10,20 +11,28 @@ use Liberu\Accounting\Core\Models\LegalEntity;
 
 uses(RefreshDatabase::class);
 
+function accountingCoreApiUser(): User
+{
+    $user = User::factory()->create();
+    app(TeamManagementService::class)->createPersonalTeamForUser($user);
+
+    return $user->refresh();
+}
+
 it('requires authentication for accounting core legal entities', function (): void {
     $this->getJson('/api/v1/accounting/accounting-core/legal-entities')
         ->assertUnauthorized();
 });
 
 it('requires the accounting core read ability', function (): void {
-    Sanctum::actingAs(User::factory()->create(), ['invoices:read']);
+    Sanctum::actingAs(accountingCoreApiUser(), ['invoices:read']);
 
     $this->getJson('/api/v1/accounting/accounting-core/legal-entities')
         ->assertForbidden();
 });
 
 it('creates and lists legal entities through the scoped contract', function (): void {
-    $user = User::factory()->create();
+    $user = accountingCoreApiUser();
 
     Sanctum::actingAs($user, ['accounting.core.write']);
 
@@ -45,7 +54,7 @@ it('creates and lists legal entities through the scoped contract', function (): 
 });
 
 it('rejects invalid currency input at the API boundary', function (): void {
-    Sanctum::actingAs(User::factory()->create(), ['accounting.core.write']);
+    Sanctum::actingAs(accountingCoreApiUser(), ['accounting.core.write']);
 
     $this->postJson('/api/v1/accounting/accounting-core/legal-entities', [
         'name' => 'Invalid Limited',
@@ -55,7 +64,7 @@ it('rejects invalid currency input at the API boundary', function (): void {
 });
 
 it('updates and deletes legal entities with the write ability', function (): void {
-    $user = User::factory()->create();
+    $user = accountingCoreApiUser();
     Sanctum::actingAs($user, ['accounting.core.write']);
 
     $this->postJson('/api/v1/accounting/accounting-core/legal-entities', [
@@ -80,11 +89,11 @@ it('updates and deletes legal entities with the write ability', function (): voi
 });
 
 it('manages books and rejects overlapping fiscal calendars', function (): void {
-    $user = User::factory()->create();
+    $user = accountingCoreApiUser();
     Sanctum::actingAs($user, ['accounting.core.write', 'accounting.core.read']);
 
     $entity = LegalEntity::query()->create([
-        'name' => 'Books Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual', 'is_active' => true,
+        'team_id' => $user->current_team_id, 'name' => 'Books Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual', 'is_active' => true,
     ]);
 
     $book = $this->postJson('/api/v1/accounting/accounting-core/books', [
@@ -111,10 +120,10 @@ it('manages books and rejects overlapping fiscal calendars', function (): void {
 });
 
 it('manages book defaults and policies within the book boundary', function (): void {
-    $user = User::factory()->create();
+    $user = accountingCoreApiUser();
     Sanctum::actingAs($user, ['accounting.core.write', 'accounting.core.read']);
     $entity = LegalEntity::query()->create([
-        'name' => 'Settings Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual', 'is_active' => true,
+        'team_id' => $user->current_team_id, 'name' => 'Settings Entity', 'currency_code' => 'GBP', 'accounting_basis' => 'accrual', 'is_active' => true,
     ]);
     $book = Book::query()->create([
         'legal_entity_id' => $entity->id, 'name' => 'Settings Book', 'code' => 'SET', 'accounting_basis' => 'accrual', 'is_active' => true,

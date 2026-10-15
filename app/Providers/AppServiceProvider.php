@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\Team;
 use App\Models\User;
 use App\Modules\ModuleManager;
 use App\Modules\ModuleServiceProvider;
+use App\Policies\TeamPolicy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
@@ -37,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Gate::define('viewHorizon', static fn (User $user): bool => $user->hasRole('super_admin'));
+        Gate::policy(Team::class, TeamPolicy::class);
         $this->configureModels();
         $this->configureUrl();
         $this->configurePassword();

@@ -23,7 +23,7 @@ class WiseWebhookController extends Controller
         try {
             $rawBody = $request->getContent();
             $signature = $request->header('X-Signature-SHA256', '');
-            $publicKey = config('services.wise.webhook_public_key', '');
+            $publicKey = (string) (config('services.wise.webhook_public_key') ?? '');
 
             if (! $this->wiseService->verifyWebhookSignature($rawBody, $signature, $publicKey)) {
                 Log::warning('Wise webhook signature verification failed', [
@@ -57,7 +57,7 @@ class WiseWebhookController extends Controller
             ]);
         } catch (Exception $e) {
             Log::error('Wise webhook processing failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             // Return 200 to prevent Wise from retrying on processing errors

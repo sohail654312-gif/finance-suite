@@ -132,7 +132,33 @@ class JournalEntry extends Model implements ApprovableRecord
 
     public function isBalanced(): bool
     {
-        return bccomp((string) $this->total_debits, (string) $this->total_credits, 2) === 0;
+        // An empty journal is not balanced double-entry accounting merely
+        // because both totals happen to equal zero.
+        $lines = $this->lines()->get(['debit_amount', 'credit_amount']);
+        if ($lines->count() < 2) {
+            return false;
+        }
+
+        $debits = '0.00';
+        $credits = '0.00';
+
+        foreach ($lines as $line) {
+            // Inspect persisted values without the decimal:2 accessor hiding
+            // an imprecise legacy/SQL-imported fractional-cent amount.
+            $debit = (string) $line->getRawOriginal('debit_amount');
+            $credit = (string) $line->getRawOriginal('credit_amount');
+            if (preg_match('/^\\d{1,18}(?:\\.\\d{1,2})?$/D', $debit) !== 1
+                || preg_match('/^\\d{1,18}(?:\\.\\d{1,2})?$/D', $credit) !== 1
+                || (bccomp($debit, '0.00', 2) > 0) === (bccomp($credit, '0.00', 2) > 0)) {
+                return false;
+            }
+
+            $debits = bcadd($debits, $debit, 2);
+            $credits = bcadd($credits, $credit, 2);
+        }
+
+        return bccomp($debits, '0.00', 2) > 0
+            && bccomp($debits, $credits, 2) === 0;
     }
 
     public function post(): static
@@ -146,6 +172,15 @@ class JournalEntry extends Model implements ApprovableRecord
         }
 
         \DB::transaction(function (): void {
+            // Validate every posting account before mutating balances.
+            // A balanced journal must not include another company's accounts.
+            foreach ($this->lines as $line) {
+                $account = $line->account;
+                if ((string) $account->team_id !== (string) $this->team_id) {
+                    throw new \DomainException('Journal accounts must belong to the posting team.');
+                }
+            }
+
             foreach ($this->lines as $line) {
                 $account = $line->account;
 

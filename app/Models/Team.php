@@ -37,6 +37,12 @@ class Team extends JetstreamTeam
 {
     use HasFactory;
 
+    protected $hidden = [
+        'vonage_key',
+        'vonage_secret',
+        'accounting_setup',
+    ];
+
     /**
      * The attributes that are mass assignable.
      *

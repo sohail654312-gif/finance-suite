@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Gate;
 use Liberu\Accounting\Core\Actions\CreateLegalEntity;
 use Liberu\Accounting\Core\Actions\UpdateLegalEntity;
 use Liberu\Accounting\Core\Models\LegalEntity;
+use Liberu\Accounting\Core\Support\TenantOwnership;
 use Liberu\Accounting\CoreApi\Http\Requests\StoreLegalEntityRequest;
 use Liberu\Accounting\CoreApi\Http\Requests\UpdateLegalEntityRequest;
 use Liberu\Accounting\CoreApi\Http\Resources\LegalEntityResource;
@@ -22,7 +23,11 @@ final class LegalEntityController extends Controller
     {
         Gate::authorize('viewAny', LegalEntity::class);
 
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+
         $entities = LegalEntity::query()
+            ->where('team_id', $teamId)
             ->orderByDesc('created_at')
             ->paginate(min($request->integer('per_page', 25), 100));
 
@@ -40,7 +45,10 @@ final class LegalEntityController extends Controller
     {
         Gate::authorize('create', LegalEntity::class);
 
-        $entity = $create->handle($request->validated());
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+
+        $entity = $create->handle($request->validated() + ['team_id' => $teamId]);
 
         return (new LegalEntityResource($entity))
             ->response()

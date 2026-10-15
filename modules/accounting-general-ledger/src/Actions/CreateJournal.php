@@ -30,21 +30,35 @@ final class CreateJournal
             if ($accounts->count() !== $accountIds->count() || $accounts->contains(fn (Account $account): bool => (int) $account->legal_entity_id !== (int) $book->getAttribute('legal_entity_id'))) {
                 throw new InvalidJournal('Every journal line must reference an account in the book legal entity.');
             }
-            $debits = 0.0;
-            $credits = 0.0;
-            foreach ($lines as $line) {
-                $debit = (float) ($line['debit'] ?? 0);
-                $credit = (float) ($line['credit'] ?? 0);
-                if ($debit < 0 || $credit < 0 || ($debit > 0 && $credit > 0) || ($debit == 0 && $credit == 0)) {
-                    throw new InvalidJournal('Each line must contain either a positive debit or credit.');
-                }$debits += $debit;
-                $credits += $credit;
+            if ((array_key_exists('status', $attributes) && $attributes['status'] !== JournalStatus::Draft->value) || array_key_exists('posted_by', $attributes) || array_key_exists('posted_at', $attributes)) {
+                throw new InvalidJournal('New journals must be drafts without posting metadata.');
             }
-            if (abs($debits - $credits) > 0.005) {
+            $debits = '0.00';
+            $credits = '0.00';
+            foreach ($lines as $line) {
+                $debit = (string) ($line['debit'] ?? '0');
+                $credit = (string) ($line['credit'] ?? '0');
+                if (! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $debit) || ! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $credit)) {
+                    throw new InvalidJournal('Journal amounts must be non-negative decimals with at most two decimal places.');
+                }
+                $hasDebit = bccomp($debit, '0', 2) === 1;
+                $hasCredit = bccomp($credit, '0', 2) === 1;
+                if ($hasDebit === $hasCredit) {
+                    throw new InvalidJournal('Each line must contain either a positive debit or credit.');
+                }
+                $debits = bcadd($debits, $debit, 2);
+                $credits = bcadd($credits, $credit, 2);
+            }
+            if (bccomp($debits, $credits, 2) !== 0) {
                 throw new InvalidJournal('Journal debits and credits must balance.');
             }
             $entry = JournalEntry::create($attributes + ['journal_type' => ($attributes['journal_type'] ?? JournalType::General->value), 'status' => JournalStatus::Draft->value]);
             $entry->lines()->createMany($lines);
+            foreach ($entry->lines()->orderBy('id')->get() as $index => $stored) {
+                if (bccomp((string) $stored->debit, (string) ($lines[$index]['debit'] ?? '0'), 2) !== 0 || bccomp((string) $stored->credit, (string) ($lines[$index]['credit'] ?? '0'), 2) !== 0) {
+                    throw new InvalidJournal('The database cannot preserve this journal amount exactly.');
+                }
+            }
             DB::afterCommit(fn () => event(new JournalCreated($entry->fresh('lines'))));
 
             return $entry->load('lines');

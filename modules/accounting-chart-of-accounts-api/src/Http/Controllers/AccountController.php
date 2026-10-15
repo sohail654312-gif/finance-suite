@@ -18,13 +18,17 @@ use Liberu\Accounting\ChartOfAccounts\Models\Account;
 use Liberu\Accounting\ChartOfAccountsApi\Http\Requests\StoreAccountRequest;
 use Liberu\Accounting\ChartOfAccountsApi\Http\Requests\UpdateAccountRequest;
 use Liberu\Accounting\ChartOfAccountsApi\Http\Resources\AccountResource;
+use Liberu\Accounting\Core\Models\LegalEntity;
+use Liberu\Accounting\Core\Support\TenantOwnership;
 
 final class AccountController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('viewAny', Account::class);
-        $query = Account::query()->when(! $request->boolean('include_archived'), fn ($q) => $q->where('is_active', true))->latest()->when($request->integer('legal_entity_id'), fn ($q, $id) => $q->where('legal_entity_id', $id))->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')));
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+        $query = Account::query()->where('team_id', $teamId)->when(! $request->boolean('include_archived'), fn ($q) => $q->where('is_active', true))->latest()->when($request->integer('legal_entity_id'), fn ($q, $id) => $q->where('legal_entity_id', $id))->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')));
 
         return AccountResource::collection($query->paginate(min($request->integer('per_page', 25), 100)))->response();
     }
@@ -37,7 +41,11 @@ final class AccountController extends Controller
             throw ValidationException::withMessages(['legal_entity_id' => 'A legal entity is required.']);
         }
 
-        return response()->json(['data' => AccountResource::collection(Account::query()->where('legal_entity_id', $entityId)->whereNull('parent_id')->with('children.children.children')->orderBy('code')->get())]);
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+        LegalEntity::query()->whereKey($entityId)->where('team_id', $teamId)->firstOrFail();
+
+        return response()->json(['data' => AccountResource::collection(Account::query()->where('team_id', $teamId)->where('legal_entity_id', $entityId)->whereNull('parent_id')->with('children.children.children')->orderBy('code')->get())]);
     }
 
     public function show(string $account): AccountResource
@@ -52,8 +60,14 @@ final class AccountController extends Controller
     {
         Gate::authorize('create', Account::class);
 
+        $data = $request->validated();
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+        $entity = LegalEntity::query()->whereKey($data['legal_entity_id'])->where('team_id', $teamId)->firstOrFail();
+        $data['legal_entity_id'] = $entity->getKey();
+
         try {
-            return (new AccountResource($save->handle($request->validated())))->response()->setStatusCode(201);
+            return (new AccountResource($save->handle($data)))->response()->setStatusCode(201);
         } catch (InvalidAccountHierarchy $exception) {
             $this->rejectHierarchy($exception);
         } catch (InvalidAccount $exception) {

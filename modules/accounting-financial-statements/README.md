@@ -21,6 +21,12 @@ Invalid dates, reversed periods, missing books, and malformed dimensions throw `
 
 Presentation adapters call `StatementQuery`; they do not reproduce ledger aggregation or access private storage from another module.
 
+## Cash classification and report limits
+
+Generic asset accounts are included in cash reconciliation only when their metadata explicitly sets `is_cash_equivalent` to `true`. Account labels are not evidence of cash classification. The cash report reconciles cumulative beginning/ending cash and period movement. Operating/investing/financing classification remains incomplete: section totals are `null`, `classification_complete` is `false`, and movements are returned under `unclassified_activities`. Consumers must not present these movements as certified operating cash flows. Complete and review activity mappings before treating this as a finished statement.
+
+Statement presentation follows the account category's debit/credit direction, preserving contra balances, expense refunds and negative liabilities. Reversed original postings remain in historical balances alongside their opposite entries. Retained earnings include all posted history through the requested date.
+
 ## Verification
 
 ```bash

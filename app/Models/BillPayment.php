@@ -76,8 +76,14 @@ class BillPayment extends Model
                     $bill->status = 'paid';
                 } elseif ($bill->amount_paid > 0) {
                     $bill->payment_status = 'partial';
+                    if ($bill->status === 'paid') {
+                        $bill->status = 'open';
+                    }
                 } else {
                     $bill->payment_status = 'unpaid';
+                    if ($bill->status === 'paid') {
+                        $bill->status = 'open';
+                    }
                 }
 
                 $bill->save();

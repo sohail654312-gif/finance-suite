@@ -12,9 +12,32 @@ class Book extends Model
 {
     protected $table = 'accounting_books';
 
-    protected $fillable = ['legal_entity_id', 'name', 'code', 'accounting_basis', 'is_active'];
+    protected $fillable = ['team_id', 'legal_entity_id', 'name', 'code', 'accounting_basis', 'is_active'];
 
     protected $casts = ['is_active' => 'bool'];
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $book): void {
+            $entity = LegalEntity::query()->find($book->legal_entity_id);
+            if ($entity === null) {
+                throw new \LogicException('A book requires an existing legal entity.');
+            }
+
+            $ownerTeamId = $entity->getAttribute('team_id');
+            if ($book->exists) {
+                $originalTeamId = $book->getRawOriginal('team_id');
+                if ($originalTeamId !== null && (string) $originalTeamId !== (string) $ownerTeamId) {
+                    throw new \LogicException('A book cannot be moved across tenant ownership boundaries.');
+                }
+                if ($book->isDirty('team_id') && (string) $book->getAttribute('team_id') !== (string) $ownerTeamId) {
+                    throw new \LogicException('Book ownership must match its legal entity.');
+                }
+            }
+
+            $book->setAttribute('team_id', $ownerTeamId);
+        });
+    }
 
     public function legalEntity(): BelongsTo
     {

@@ -29,11 +29,11 @@ class Currency extends Model
 
     public function accounts()
     {
-        return $this->hasMany(Account::class);
+        return $this->hasMany(Account::class, 'currency_id', 'currency_id');
     }
 
     public function transactions()
     {
-        return $this->hasMany(Transaction::class);
+        return $this->hasMany(Transaction::class, 'currency_id', 'currency_id');
     }
 }

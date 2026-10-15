@@ -26,7 +26,7 @@ class Account extends Model
     protected $table = 'accounting_chart_accounts';
 
     protected $fillable = [
-        'legal_entity_id', 'code', 'name', 'description', 'type', 'normal_balance',
+        'team_id', 'legal_entity_id', 'code', 'name', 'description', 'type', 'normal_balance',
         'parent_id', 'is_control_account', 'allow_manual_entry', 'is_active', 'locale', 'metadata',
     ];
 
@@ -35,6 +35,29 @@ class Account extends Model
         'allow_manual_entry' => true,
         'is_active' => true,
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $account): void {
+            $entity = LegalEntity::query()->find($account->legal_entity_id);
+            if ($entity === null) {
+                throw new \LogicException('An account requires an existing legal entity.');
+            }
+
+            $ownerTeamId = $entity->getAttribute('team_id');
+            if ($account->exists) {
+                $originalTeamId = $account->getRawOriginal('team_id');
+                if ($originalTeamId !== null && (string) $originalTeamId !== (string) $ownerTeamId) {
+                    throw new \LogicException('An account cannot be moved across tenant ownership boundaries.');
+                }
+                if ($account->isDirty('team_id') && (string) $account->getAttribute('team_id') !== (string) $ownerTeamId) {
+                    throw new \LogicException('Account ownership must match its legal entity.');
+                }
+            }
+
+            $account->setAttribute('team_id', $ownerTeamId);
+        });
+    }
 
     protected $casts = [
         'type' => AccountType::class,
