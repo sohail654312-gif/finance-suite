@@ -6,6 +6,7 @@ namespace Liberu\Accounting\JournalApprovalsApi\Http\Controllers;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Liberu\Accounting\JournalApprovals\Actions\AddEvidence;
@@ -21,13 +22,13 @@ final class JournalApprovalsController extends Controller
 {
     public function __construct(private readonly JournalApprovalQuery $query) {}
 
-    public function index(Request $request): JournalApprovalResource
+    public function index(Request $request): AnonymousResourceCollection
     {
         $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.read');
         abort_if($request->filled('team_id') && $request->integer('team_id') !== $teamId, 403);
         $status = $request->filled('status') ? ApprovalStatus::from($request->string('status')->toString()) : null;
 
-        return new JournalApprovalResource($this->query->paginate($teamId, $status, $request->integer('per_page', 25)));
+        return JournalApprovalResource::collection($this->query->paginate($teamId, $status, $request->integer('per_page', 25)));
     }
 
     public function store(Request $request, SubmitJournal $action): JournalApprovalResource
@@ -35,7 +36,7 @@ final class JournalApprovalsController extends Controller
         $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.write');
         $attributes = $request->except('evidence', 'team_id', 'preparer_ref');
         $attributes['team_id'] = $teamId;
-        $attributes['preparer_ref'] = (string) $request->user()->getAuthIdentifier();
+        $attributes['preparer_ref'] = (string) $request->user()?->getAuthIdentifier();
 
         return new JournalApprovalResource($action->handle($attributes, (array) $request->input('evidence', [])));
     }
@@ -54,7 +55,7 @@ final class JournalApprovalsController extends Controller
 
         // The actor is derived from the authenticated principal, never request JSON.
         // Role-sensitive approvals remain fail-closed until trusted role resolution is wired.
-        return new JournalApprovalResource($action->handle($approval, (string) $request->user()->getAuthIdentifier(), (bool) $data['approved'], $data['comment'] ?? null));
+        return new JournalApprovalResource($action->handle($approval, (string) $request->user()?->getAuthIdentifier(), (bool) $data['approved'], $data['comment'] ?? null));
     }
 
     public function post(Request $request, JournalApproval $approval): JournalApprovalResource
@@ -80,6 +81,9 @@ final class JournalApprovalsController extends Controller
     {
         $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.write');
         $user = $request->user();
+        if (! $user instanceof Model) {
+            abort(403);
+        }
         $team = $user->getRelationValue('currentTeam');
         abort_unless($team instanceof Model && method_exists($user, 'ownsTeam') && $user->ownsTeam($team), 403);
         abort_if($request->filled('team_id') && $request->integer('team_id') !== $teamId, 403);
@@ -98,7 +102,9 @@ final class JournalApprovalsController extends Controller
     private function ownedTeamId(Request $request, string $ability): int
     {
         $user = $request->user();
-        abort_unless($user instanceof Model && method_exists($user, 'tokenCan') && $user->tokenCan($ability), 403);
+        if (! $user instanceof Model || ! method_exists($user, 'tokenCan') || ! $user->tokenCan($ability)) {
+            abort(403);
+        }
         $rawId = $user->getAttribute('current_team_id');
         $team = $user->getRelationValue('currentTeam');
         abort_unless(is_numeric($rawId) && (int) $rawId > 0
