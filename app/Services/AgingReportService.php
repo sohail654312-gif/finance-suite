@@ -12,9 +12,17 @@ class AgingReportService
 {
     public function generateAgingReport(): Collection
     {
-        $today = Carbon::now();
+        $today = Carbon::today();
+        $teamId = auth()->user()?->current_team_id;
 
-        return Invoice::where('payment_status', 'pending')
+        if (! is_numeric($teamId) || (int) $teamId < 1) {
+            return collect();
+        }
+
+        return Invoice::query()
+            ->where('team_id', (int) $teamId)
+            ->whereHas('customer', fn ($query) => $query->where('team_id', (int) $teamId))
+            ->where('payment_status', 'pending')
             ->with('customer')
             ->get()
             ->groupBy('customer_id')
@@ -30,7 +38,7 @@ class AgingReportService
                 ];
 
                 foreach ($invoices as $invoice) {
-                    $daysOverdue = $today->diffInDays($invoice->due_date);
+                    $daysOverdue = $invoice->due_date?->diffInDays($today, false) ?? 0;
                     $amount = $invoice->getTotalWithTax();
 
                     if ($daysOverdue <= 0) {
