@@ -38,10 +38,24 @@ class JournalEntryLine extends Model
     {
         static::saving(function (self $line): void {
             self::assertLegacyParentNotPosted($line);
+            self::assertExactCentValues($line);
         });
         static::deleting(function (self $line): void {
             self::assertLegacyParentNotPosted($line);
         });
+    }
+
+    private static function assertExactCentValues(self $line): void
+    {
+        // Validate raw values before Laravel's decimal:2 accessor or database
+        // column can silently round away a fraction of a cent.
+        $attributes = $line->getAttributes();
+        foreach (['debit_amount', 'credit_amount'] as $field) {
+            if (array_key_exists($field, $attributes)
+                && preg_match('/^-?\\d{1,18}(?:\\.\\d{1,2})?$/D', (string) $attributes[$field]) !== 1) {
+                throw new \DomainException('Journal amounts must use exact cents.');
+            }
+        }
     }
 
     private static function assertLegacyParentNotPosted(self $line): void
