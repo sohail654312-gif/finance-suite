@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Listeners;
 
+use Liberu\Accounting\Core\Models\LegalEntity;
 use Liberu\Accounting\GeneralLedger\Events\AuthorizingJournalPost;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
 use Liberu\Accounting\JournalApprovals\Enums\ApprovalStatus;
@@ -55,7 +56,10 @@ final class RequireJournalApprovalForPosting
         // authorization to post this book's journal. Always use the entity's
         // persisted currency, not a caller-supplied posting attribute.
         $book = $journal->book()->with('legalEntity')->first();
-        $bookCurrency = $book?->legalEntity?->getAttribute('currency_code');
+        $entity = $book?->getRelation('legalEntity');
+        $bookCurrency = $entity instanceof LegalEntity
+            ? $entity->getAttribute('currency_code')
+            : null;
         if (! is_string($bookCurrency) || $bookCurrency === ''
             || strtoupper((string) $approval->currency) !== strtoupper($bookCurrency)
             || $approval->journal_type !== $journal->journal_type->value
