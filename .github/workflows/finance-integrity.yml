@@ -56,6 +56,7 @@ jobs:
           tests/Feature/HostModuleIntegrityTest.php
           tests/Feature/ModularTenantOwnershipIntegrityTest.php
           tests/Feature/JournalApprovalsHttpTenantIntegrityTest.php
+          tests/Feature/LegacyPostedJournalLineIntegrityTest.php
           tests/Feature/Api/WiseIntegrityTest.php
           tests/Feature/AccountSetupWizardTest.php
           tests/Unit/HostCoverageGateTest.php tests/Unit/Services/GeneralLedgerServiceTest.php
