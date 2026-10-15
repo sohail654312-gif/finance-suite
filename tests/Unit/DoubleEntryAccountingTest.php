@@ -396,7 +396,7 @@ class DoubleEntryAccountingTest extends TestCase
         $this->assertEquals(-200.00, $this->revenueAccount->balance); // 0 - 200
     }
 
-    public function test_post_line_with_both_debit_and_credit_uses_net_effect(): void
+    public function test_post_rejects_a_line_with_both_debit_and_credit_without_changing_balances(): void
     {
         $journalEntry = JournalEntry::create([
             'user_id' => $this->user->id,
@@ -404,7 +404,7 @@ class DoubleEntryAccountingTest extends TestCase
             'entry_type' => 'general',
         ]);
 
-        // Cash line carries BOTH debit and credit: nets +300 (500 - 200)
+        // A line carrying both debit and credit is not a valid posting, even if its net balances.
         JournalEntryLine::create([
             'journal_entry_id' => $journalEntry->id,
             'account_id' => $this->cashAccount->id,
@@ -412,7 +412,7 @@ class DoubleEntryAccountingTest extends TestCase
             'credit_amount' => 200.00,
         ]);
 
-        // Revenue credit 300 keeps it balanced (debits 500 == credits 200 + 300)
+        // Matching totals must not make a dual-sided line acceptable.
         JournalEntryLine::create([
             'journal_entry_id' => $journalEntry->id,
             'account_id' => $this->revenueAccount->id,
@@ -420,15 +420,13 @@ class DoubleEntryAccountingTest extends TestCase
             'credit_amount' => 300.00,
         ]);
 
-        $this->assertTrue($journalEntry->isBalanced());
+        $this->assertFalse($journalEntry->isBalanced());
+        expect(fn () => $journalEntry->post())
+            ->toThrow(\Exception::class, 'Journal entry must be balanced before posting.');
 
-        $journalEntry->post();
-
-        $this->cashAccount->refresh();
-        $this->revenueAccount->refresh();
-
-        $this->assertEquals(1300.00, $this->cashAccount->balance);  // 1000 + (500 - 200)
-        $this->assertEquals(300.00, $this->revenueAccount->balance); // 0 + 300
+        $this->assertFalse($journalEntry->refresh()->is_posted);
+        $this->assertEquals(1000.00, $this->cashAccount->fresh()->balance);
+        $this->assertEquals(0.00, $this->revenueAccount->fresh()->balance);
     }
 
     public function test_is_balanced_treats_sub_cent_difference_as_balanced(): void
@@ -504,7 +502,7 @@ class DoubleEntryAccountingTest extends TestCase
         $this->assertEquals($this->user->id, $entry->fresh()->user_id);
     }
 
-    public function test_is_balanced_with_negative_amounts(): void
+    public function test_rejects_negative_debit_and_credit_amounts_even_when_totals_match(): void
     {
         $journalEntry = JournalEntry::create([
             'user_id' => $this->user->id,
@@ -526,12 +524,12 @@ class DoubleEntryAccountingTest extends TestCase
             'credit_amount' => -50.00,
         ]);
 
-        $this->assertTrue($journalEntry->isBalanced());
+        $this->assertFalse($journalEntry->isBalanced());
         $this->assertEquals(-50.00, $journalEntry->total_debits);
         $this->assertEquals(-50.00, $journalEntry->total_credits);
     }
 
-    public function test_post_with_negative_amounts_adjusts_balances(): void
+    public function test_post_refuses_negative_amounts_and_preserves_account_balances(): void
     {
         $journalEntry = JournalEntry::create([
             'user_id' => $this->user->id,
@@ -553,14 +551,12 @@ class DoubleEntryAccountingTest extends TestCase
             'credit_amount' => -50.00,
         ]);
 
-        $journalEntry->post();
+        $this->assertFalse($journalEntry->isBalanced());
+        expect(fn () => $journalEntry->post())
+            ->toThrow(\Exception::class, 'Journal entry must be balanced before posting.');
 
-        $this->cashAccount->refresh();
-        $this->revenueAccount->refresh();
-
-        // Cash (debit-normal): 1000 + (-50 - 0) = 950
-        $this->assertEquals(950.00, $this->cashAccount->balance);
-        // Revenue (credit-normal): 0 + (-50 - 0) = -50
-        $this->assertEquals(-50.00, $this->revenueAccount->balance);
+        $this->assertFalse($journalEntry->refresh()->is_posted);
+        $this->assertEquals(1000.00, $this->cashAccount->fresh()->balance);
+        $this->assertEquals(0.00, $this->revenueAccount->fresh()->balance);
     }
 }
