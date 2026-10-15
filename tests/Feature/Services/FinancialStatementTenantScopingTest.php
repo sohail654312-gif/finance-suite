@@ -57,13 +57,20 @@ class FinancialStatementTenantScopingTest extends TestCase
 
     private function postLine(Account $account, float $debit = 0, float $credit = 0): void
     {
-        $entry = JournalEntry::factory()->posted()->create(['entry_date' => '2024-06-15']);
+        $entry = JournalEntry::factory()->create([
+            'entry_date' => '2024-06-15',
+            'team_id' => $account->team_id,
+        ]);
         JournalEntryLine::create([
             'journal_entry_id' => $entry->id,
             'account_id' => $account->id,
             'debit_amount' => $debit,
             'credit_amount' => $credit,
         ]);
+
+        // Prepare the reporting fixture before marking it as posted; model
+        // guards must continue to reject edits to a posted journal's lines.
+        $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
     }
 
     public function test_profit_and_loss_only_includes_the_acting_teams_accounts(): void
