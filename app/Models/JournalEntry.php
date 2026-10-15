@@ -143,8 +143,10 @@ class JournalEntry extends Model implements ApprovableRecord
         $credits = '0.00';
 
         foreach ($lines as $line) {
-            $debit = (string) $line->debit_amount;
-            $credit = (string) $line->credit_amount;
+            // Inspect persisted values without the decimal:2 accessor hiding
+            // an imprecise legacy/SQL-imported fractional-cent amount.
+            $debit = (string) $line->getRawOriginal('debit_amount');
+            $credit = (string) $line->getRawOriginal('credit_amount');
             if (preg_match('/^\\d{1,18}(?:\\.\\d{1,2})?$/D', $debit) !== 1
                 || preg_match('/^\\d{1,18}(?:\\.\\d{1,2})?$/D', $credit) !== 1
                 || (bccomp($debit, '0.00', 2) > 0) === (bccomp($credit, '0.00', 2) > 0)) {
