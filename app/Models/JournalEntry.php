@@ -170,6 +170,15 @@ class JournalEntry extends Model implements ApprovableRecord
         }
 
         \DB::transaction(function (): void {
+            // Validate every posting account before mutating balances.
+            // A balanced journal must not include another company's accounts.
+            foreach ($this->lines as $line) {
+                $account = $line->account;
+                if ((string) $account->team_id !== (string) $this->team_id) {
+                    throw new \DomainException('Journal accounts must belong to the posting team.');
+                }
+            }
+
             foreach ($this->lines as $line) {
                 $account = $line->account;
 
