@@ -50,6 +50,7 @@ jobs:
       - name: Verify host reporting boundaries and coverage enforcement
         run: >-
           php artisan test --compact tests/Feature/HostAccountingReportingIntegrityTest.php
+          tests/Feature/ProjectReportingCoverageTest.php
           tests/Feature/HostIdentityIntegrityTest.php
           tests/Feature/HostSubledgerIntegrityTest.php
           tests/Feature/HostBankFeedIntegrityTest.php
