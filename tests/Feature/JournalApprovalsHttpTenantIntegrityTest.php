@@ -7,8 +7,8 @@ use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Liberu\Accounting\JournalApprovals\Actions\SubmitJournal;
-use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 use Liberu\Accounting\JournalApprovals\Models\ApprovalThreshold;
+use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 
 uses(RefreshDatabase::class);
 
@@ -118,7 +118,6 @@ it('requires a trusted team owner for threshold changes and a write-capable toke
         'team_id' => $owner->current_team_id,
     ])->assertForbidden();
 });
-
 
 it('requires persisted team reviewer role and ignores caller-supplied role claims', function (): void {
     $preparer = approvalHttpOwnedUser();
