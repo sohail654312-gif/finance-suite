@@ -23,8 +23,12 @@ use Liberu\Accounting\JournalApprovalsApi\Http\Resources\JournalApprovalResource
 
 final class JournalApprovalsController extends Controller
 {
-    public function __construct(private readonly JournalApprovalQuery $query)
-    {}
+    private readonly JournalApprovalQuery $query;
+
+    public function __construct(JournalApprovalQuery $query)
+    {
+        $this->query = $query;
+    }
 
     public function index(Request $request): AnonymousResourceCollection
     {
