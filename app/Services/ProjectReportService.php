@@ -12,11 +12,17 @@ class ProjectReportService
 {
     public function getProjectFinancials(Project $project, $startDate, $endDate): array
     {
+        // Project relationships are not themselves company ownership checks:
+        // a corrupt/forged project_id may point to a row from another team.
+        // A missing tenant must fail closed rather than query null-team data.
+        $teamId = (int) ($project->team_id ?? -1);
         $transactions = $project->transactions()
+            ->where('team_id', $teamId)
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->get();
 
         $expenses = $project->expenses()
+            ->where('team_id', $teamId)
             ->whereBetween('date', [$startDate, $endDate])
             ->get();
 
@@ -58,6 +64,7 @@ class ProjectReportService
     private function calculateIndirectCosts(Project $project, $startDate, $endDate)
     {
         return $project->expenses()
+            ->where('team_id', (int) ($project->team_id ?? -1))
             ->where('is_indirect', true)
             ->whereBetween('date', [$startDate, $endDate])
             ->get()
@@ -68,6 +75,7 @@ class ProjectReportService
     {
         $actuals = $this->getProjectFinancials($project, $startDate, $endDate);
         $budgets = $project->budgets()
+            ->where('team_id', (int) ($project->team_id ?? -1))
             ->whereBetween('start_date', [$startDate, $endDate])
             ->get();
 
