@@ -56,7 +56,7 @@ class AgingReportService
 
                 return [
                     'customer_name' => $customer->customer_name,
-                    'customer_id' => $customer->customer_id,
+                    'customer_id' => $customer->getKey(),
                     'credit_limit' => $customer->credit_limit,
                     'current_balance' => $customer->current_balance,
                     'aging' => $aging,
