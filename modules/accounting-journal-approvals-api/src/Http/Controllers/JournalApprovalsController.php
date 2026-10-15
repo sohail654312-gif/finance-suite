@@ -6,8 +6,8 @@ namespace Liberu\Accounting\JournalApprovalsApi\Http\Controllers;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,8 +24,7 @@ use Liberu\Accounting\JournalApprovalsApi\Http\Resources\JournalApprovalResource
 final class JournalApprovalsController extends Controller
 {
     public function __construct(private readonly JournalApprovalQuery $query)
-    {
-    }
+    {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
