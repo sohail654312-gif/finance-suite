@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Liberu\Accounting\JournalApprovals\Actions\SubmitJournal;
 use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
+use Liberu\Accounting\JournalApprovals\Models\ApprovalThreshold;
 
 uses(RefreshDatabase::class);
 
@@ -116,4 +117,46 @@ it('requires a trusted team owner for threshold changes and a write-capable toke
         ...$attributes,
         'team_id' => $owner->current_team_id,
     ])->assertForbidden();
+});
+
+
+it('requires persisted team reviewer role and ignores caller-supplied role claims', function (): void {
+    $preparer = approvalHttpOwnedUser();
+    $reviewer = approvalHttpOwnedUser();
+    $team = $preparer->currentTeam;
+    $team->users()->attach($reviewer->getKey(), ['role' => 'viewer']);
+    expect($reviewer->switchTeam($team))->toBeTrue();
+    $reviewer->refresh();
+
+    $approval = approvalHttpFixture($preparer);
+    ApprovalThreshold::query()->create([
+        'team_id' => $preparer->current_team_id,
+        'journal_type' => 'general',
+        'minimum_amount' => '50.00',
+        'reviewer_role' => 'accountant',
+        'required_approvals' => 1,
+        'emergency_allowed' => false,
+        'active' => true,
+    ]);
+
+    Sanctum::actingAs($reviewer, ['accounting.journal-approvals.read', 'accounting.journal-approvals.write']);
+
+    // The submitted role is never used as approval authority.
+    $this->postJson("/api/v1/accounting/journal-approvals/{$approval->id}/decide", [
+        'approved' => true,
+        'actor_roles' => ['accountant'],
+    ])->assertUnprocessable()->assertJsonValidationErrors('approval');
+
+    expect($approval->fresh()->status->value)->toBe('pending')
+        ->and($approval->decisions()->count())->toBe(0);
+
+    $team->users()->updateExistingPivot($reviewer->getKey(), ['role' => 'accountant']);
+
+    $this->postJson("/api/v1/accounting/journal-approvals/{$approval->id}/decide", [
+        'approved' => true,
+    ])->assertOk()->assertJsonPath('data.status', 'approved');
+
+    expect($approval->fresh()->decisions()->count())->toBe(1)
+        ->and($approval->fresh()->decisions()->first()->actor_ref)->toBe((string) $reviewer->getKey())
+        ->and($approval->fresh()->decisions()->first()->metadata['reviewer_role'])->toBe('accountant');
 });
