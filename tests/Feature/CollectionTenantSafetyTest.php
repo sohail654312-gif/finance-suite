@@ -83,6 +83,7 @@ it('reports only owned pending invoices and ignores cross-company links and paid
         [$this->collectionsTeam->getKey(), $customer->getKey(), 'pending', '40.00', '2026-06-01'],
         [$this->collectionsTeam->getKey(), $customer->getKey(), 'pending', '25.00', '2026-07-01'],
         [$this->collectionsTeam->getKey(), $customer->getKey(), 'paid', '1000.00', '2026-01-01'],
+        [$this->collectionsTeam->getKey(), $customer->getKey(), 'pending', '777.00', '2026-11-01'],
         [$foreignTeam->getKey(), $customer->getKey(), 'pending', '9000.00', '2026-01-01'],
         [$foreignTeam->getKey(), $foreignCustomer->getKey(), 'pending', '9000.00', '2026-01-01'],
     ] as [$teamId, $customerId, $status, $amount, $date]) {
@@ -104,6 +105,11 @@ it('reports only owned pending invoices and ignores cross-company links and paid
         ->and($row['number_of_invoices'])->toBe(2)
         ->and($row['oldest_invoice_date']->toDateString())->toBe('2026-06-01')
         ->and($row['contact_info']['email'])->toBe($customer->customer_email);
+
+    $notice = new CollectionNotification($customer);
+    expect($notice->toSms($customer))->toContain('$65.00')
+        ->and($notice->toSms($customer))->not->toContain('777.00')
+        ->and(implode(' ', $notice->toMail($customer)->introLines))->toContain('Total amount overdue: $65.00');
 });
 
 it('fails closed without a selected company and never updates another customer', function (): void {
