@@ -108,6 +108,11 @@ class Customer extends Authenticatable implements FilamentUser
         $this->save();
     }
 
+    public function routeNotificationForMail(mixed $notification = null): ?string
+    {
+        return $this->customer_email;
+    }
+
     public function routeNotificationForSms(mixed $notification = null): ?string
     {
         return $this->customer_phone;
