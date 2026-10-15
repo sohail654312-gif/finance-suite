@@ -72,7 +72,7 @@ it('stamps the server-side team and preparer instead of trusting request fields'
         'journal_ref' => 'J-NEW',
         'currency' => 'GBP',
         'amount' => '100.00',
-    ])->assertOk();
+    ])->assertCreated();
 
     $approval = JournalApproval::query()->where('approval_ref', 'APR-SERVER-BOUND')->firstOrFail();
     expect((int) $approval->team_id)->toBe((int) $stranger->current_team_id)
