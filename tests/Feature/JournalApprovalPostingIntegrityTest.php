@@ -177,7 +177,6 @@ it('does not require approval below a configured posting threshold', function ()
     expect($posted->status)->toBe(JournalStatus::Posted);
 });
 
-
 it('rejects sub-cent approval amounts without floating-point rounding', function (): void {
     [, $journal] = protectedLedgerJournal();
 
