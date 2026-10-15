@@ -429,7 +429,7 @@ class DoubleEntryAccountingTest extends TestCase
         $this->assertEquals(0.00, $this->revenueAccount->fresh()->balance);
     }
 
-    public function test_is_balanced_treats_sub_cent_difference_as_balanced(): void
+    public function test_rejects_fractional_cent_input_before_it_can_be_rounded(): void
     {
         $journalEntry = JournalEntry::create([
             'user_id' => $this->user->id,
@@ -437,22 +437,15 @@ class DoubleEntryAccountingTest extends TestCase
             'entry_type' => 'general',
         ]);
 
-        JournalEntryLine::create([
+        expect(fn () => JournalEntryLine::create([
             'journal_entry_id' => $journalEntry->id,
             'account_id' => $this->cashAccount->id,
             'debit_amount' => 100.001,
             'credit_amount' => 0.00,
-        ]);
+        ]))->toThrow(\DomainException::class, 'Journal amounts must use exact cents.');
 
-        JournalEntryLine::create([
-            'journal_entry_id' => $journalEntry->id,
-            'account_id' => $this->revenueAccount->id,
-            'debit_amount' => 0.00,
-            'credit_amount' => 100.00,
-        ]);
-
-        // isBalanced() compares with bccomp(..., 2), so the sub-cent tail is ignored.
-        $this->assertTrue($journalEntry->isBalanced());
+        $this->assertSame(0, $journalEntry->lines()->count());
+        $this->assertFalse($journalEntry->isBalanced());
     }
 
     public function test_generate_entry_number_produces_sequential_formatted_numbers(): void
