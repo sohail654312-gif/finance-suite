@@ -98,7 +98,6 @@ it('forecasts from the latest twelve transactions rather than all history', func
         ->and($budget->fresh()->forecast_method)->toBe('moving_average');
 });
 
-
 it('scopes receivables aging to invoices whose company and customer are both owned', function (): void {
     $customer = Customer::factory()->create(['team_id' => $this->reportTeam->id]);
     $otherUser = User::factory()->create();
