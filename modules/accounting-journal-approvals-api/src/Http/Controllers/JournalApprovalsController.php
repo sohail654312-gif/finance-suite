@@ -23,7 +23,9 @@ use Liberu\Accounting\JournalApprovalsApi\Http\Resources\JournalApprovalResource
 
 final class JournalApprovalsController extends Controller
 {
-    public function __construct(private readonly JournalApprovalQuery $query) {}
+    public function __construct(private readonly JournalApprovalQuery $query)
+    {
+    }
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -59,7 +61,7 @@ final class JournalApprovalsController extends Controller
         // Resolve qualifications from the authenticated user's persisted membership
         // of this selected team. Never trust actor_ref or role claims from JSON.
         $user = $request->user();
-        if (! $user instanceof Model) {
+        if (($user instanceof Model) === false) {
             abort(403);
         }
         $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.write');
@@ -104,7 +106,7 @@ final class JournalApprovalsController extends Controller
     {
         $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.write');
         $user = $request->user();
-        if (! $user instanceof Model) {
+        if (($user instanceof Model) === false) {
             abort(403);
         }
         $team = $user->getRelationValue('currentTeam');
@@ -125,7 +127,7 @@ final class JournalApprovalsController extends Controller
     private function ownedTeamId(Request $request, string $ability): int
     {
         $user = $request->user();
-        if (! $user instanceof Model || ! method_exists($user, 'tokenCan') || ! $user->tokenCan($ability)) {
+        if (($user instanceof Model) === false || method_exists($user, 'tokenCan') === false || $user->tokenCan($ability) === false) {
             abort(403);
         }
         $rawId = $user->getAttribute('current_team_id');
