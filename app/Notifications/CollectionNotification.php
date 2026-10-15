@@ -26,7 +26,9 @@ class CollectionNotification extends Notification implements ShouldQueue
     public function toSms($notifiable): string
     {
         $totalOverdue = $this->customer->invoices()
+            ->where('team_id', $this->customer->team_id ?? -1)
             ->where('payment_status', 'pending')
+            ->where('due_date', '<', today())
             ->sum('total_amount');
 
         return 'Your account is on credit hold: $'.number_format((float) $totalOverdue, 2)
@@ -36,7 +38,9 @@ class CollectionNotification extends Notification implements ShouldQueue
     public function toMail($notifiable): MailMessage
     {
         $totalOverdue = $this->customer->invoices()
+            ->where('team_id', $this->customer->team_id ?? -1)
             ->where('payment_status', 'pending')
+            ->where('due_date', '<', today())
             ->sum('total_amount');
 
         return (new MailMessage())
