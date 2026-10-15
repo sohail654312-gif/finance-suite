@@ -73,3 +73,38 @@ it('rejects zero-value and dual-sided legacy journal lines', function (): void {
     expect($journal->isBalanced())->toBeFalse();
     expect($journal->is_posted)->toBeFalse();
 });
+
+it('refuses a balanced legacy journal whose credit account belongs to another company', function (): void {
+    [$journal, $team] = legacyBalanceCandidate();
+    $stranger = User::factory()->create();
+    $otherTeam = app(TeamManagementService::class)->createPersonalTeamForUser($stranger);
+    $own = Account::factory()->create([
+        'team_id' => $team->getKey(),
+        'normal_balance' => 'debit',
+        'balance' => '0.00',
+    ]);
+    $foreign = Account::factory()->create([
+        'team_id' => $otherTeam->getKey(),
+        'normal_balance' => 'credit',
+        'balance' => '0.00',
+    ]);
+
+    $journal->lines()->create([
+        'account_id' => $own->getKey(),
+        'debit_amount' => '100.00',
+        'credit_amount' => '0.00',
+    ]);
+    $journal->lines()->create([
+        'account_id' => $foreign->getKey(),
+        'debit_amount' => '0.00',
+        'credit_amount' => '100.00',
+    ]);
+
+    expect($journal->isBalanced())->toBeTrue();
+    expect(fn () => $journal->post())
+        ->toThrow(DomainException::class, 'Journal accounts must belong to the posting team.');
+
+    expect($journal->refresh()->is_posted)->toBeFalse()
+        ->and($own->fresh()->balance)->toBe('0.00')
+        ->and($foreign->fresh()->balance)->toBe('0.00');
+});
