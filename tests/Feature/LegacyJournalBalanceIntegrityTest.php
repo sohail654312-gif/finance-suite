@@ -7,6 +7,7 @@ use App\Models\JournalEntry;
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -107,4 +108,31 @@ it('refuses a balanced legacy journal whose credit account belongs to another co
     expect($journal->refresh()->is_posted)->toBeFalse()
         ->and($own->fresh()->balance)->toBe('0.00')
         ->and($foreign->fresh()->balance)->toBe('0.00');
+});
+
+it('rejects a sub-cent amount imported directly into an otherwise balanced legacy journal', function (): void {
+    [$journal, $team] = legacyBalanceCandidate();
+    $cash = Account::factory()->create(['team_id' => $team->getKey()]);
+    $revenue = Account::factory()->create(['team_id' => $team->getKey()]);
+    $debit = $journal->lines()->create([
+        'account_id' => $cash->getKey(),
+        'debit_amount' => '100.00',
+        'credit_amount' => '0.00',
+    ]);
+    $journal->lines()->create([
+        'account_id' => $revenue->getKey(),
+        'debit_amount' => '0.00',
+        'credit_amount' => '100.00',
+    ]);
+
+    expect($journal->isBalanced())->toBeTrue();
+
+    // Simulate an old import that bypassed the new model-event validation.
+    DB::table('journal_entry_lines')->where('id', $debit->getKey())
+        ->update(['debit_amount' => '100.001']);
+
+    expect($journal->isBalanced())->toBeFalse();
+    expect(fn () => $journal->post())
+        ->toThrow(Exception::class, 'must be balanced');
+    expect($journal->refresh()->is_posted)->toBeFalse();
 });
