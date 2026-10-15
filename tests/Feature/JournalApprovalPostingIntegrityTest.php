@@ -176,3 +176,39 @@ it('does not require approval below a configured posting threshold', function ()
 
     expect($posted->status)->toBe(JournalStatus::Posted);
 });
+
+
+it('rejects sub-cent approval amounts without floating-point rounding', function (): void {
+    [, $journal] = protectedLedgerJournal();
+
+    expect(fn () => submitLedgerApproval($journal, '100.005'))
+        ->toThrow(InvalidApproval::class, 'positive journal amount');
+
+    expect(fn () => submitLedgerApproval($journal, '1e2'))
+        ->toThrow(InvalidApproval::class, 'positive journal amount');
+});
+
+it('keeps an approval reference bound to its original journal and exact amount', function (): void {
+    [, $journal] = protectedLedgerJournal();
+
+    $approval = submitLedgerApproval($journal, '100.00');
+    $retry = submitLedgerApproval($journal, '100.00');
+    expect($retry->getKey())->toBe($approval->getKey());
+
+    expect(fn () => submitLedgerApproval($journal, '100.01'))
+        ->toThrow(InvalidApproval::class, 'different financial terms');
+
+    expect(fn () => app(SubmitJournal::class)->handle([
+        'team_id' => $journal->team_id,
+        'approval_ref' => 'APR-'.$journal->getKey(),
+        'journal_type' => $journal->journal_type->value,
+        'journal_source' => 'accounting-general-ledger',
+        'journal_ref' => 'other-journal',
+        'preparer_ref' => 'preparer-1',
+        'currency' => 'GBP',
+        'amount' => '100.00',
+    ]))->toThrow(InvalidApproval::class, 'different journal');
+
+    expect($approval->fresh()->amount)->toBe('100.00')
+        ->and($approval->fresh()->decisions()->count())->toBe(0);
+});
