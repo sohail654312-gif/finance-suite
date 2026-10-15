@@ -79,7 +79,7 @@ function protectJournal(JournalEntry $journal, int $requiredApprovals = 1): Appr
     ]);
 }
 
-function submitLedgerApproval(JournalEntry $journal, string $amount = '100.00', string $preparer = 'preparer-1')
+function submitLedgerApproval(JournalEntry $journal, string $amount = '100.00', string $preparer = 'preparer-1', string $currency = 'GBP')
 {
     return app(SubmitJournal::class)->handle([
         'team_id' => $journal->team_id,
@@ -88,7 +88,7 @@ function submitLedgerApproval(JournalEntry $journal, string $amount = '100.00', 
         'journal_source' => 'accounting-general-ledger',
         'journal_ref' => (string) $journal->getKey(),
         'preparer_ref' => $preparer,
-        'currency' => 'GBP',
+        'currency' => $currency,
         'amount' => $amount,
     ]);
 }
@@ -147,6 +147,20 @@ it('rejects an approval whose amount does not match the protected journal', func
 
     expect($approval->status)->toBe(ApprovalStatus::Approved);
 
+    expect(fn () => app(PostLedgerJournal::class)->handle($journal, 'poster-1'))
+        ->toThrow(InvalidJournal::class, 'does not match the posting candidate');
+
+    expect($journal->refresh()->status)->toBe(JournalStatus::Draft)
+        ->and($approval->refresh()->status)->toBe(ApprovalStatus::Approved);
+});
+
+it('rejects an approved journal authorization denominated in another currency', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal, '100.00', 'preparer-1', 'USD');
+    $approval = app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['accountant']);
+
+    expect($approval->status)->toBe(ApprovalStatus::Approved);
     expect(fn () => app(PostLedgerJournal::class)->handle($journal, 'poster-1'))
         ->toThrow(InvalidJournal::class, 'does not match the posting candidate');
 
