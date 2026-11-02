@@ -113,28 +113,32 @@ class GeneralLedgerService
         $previousEndDate = now()->subMonth()->endOfMonth();
 
         // Get current month revenue
-        $revenue = Transaction::whereHas('account', function ($query): void {
+        $revenue = Transaction::where('team_id', $this->scopedTeamId())
+            ->whereHas('account', function ($query): void {
             $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
         })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
         // Get previous month revenue for comparison
-        $previousRevenue = Transaction::whereHas('account', function ($query): void {
+        $previousRevenue = Transaction::where('team_id', $this->scopedTeamId())
+            ->whereHas('account', function ($query): void {
             $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
         })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
             ->sum('amount');
 
         // Get current month expenses
-        $expenses = Transaction::whereHas('account', function ($query): void {
+        $expenses = Transaction::where('team_id', $this->scopedTeamId())
+            ->whereHas('account', function ($query): void {
             $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
         })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
         // Get previous month expenses for comparison
-        $previousExpenses = Transaction::whereHas('account', function ($query): void {
+        $previousExpenses = Transaction::where('team_id', $this->scopedTeamId())
+            ->whereHas('account', function ($query): void {
             $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
         })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
@@ -176,7 +180,8 @@ class GeneralLedgerService
         for ($i = 0; $i < $days; $i++) {
             $currentDate = (clone $startDate)->addDays($i);
 
-            $amount = Transaction::whereHas('account', function ($query) use ($accountType): void {
+            $amount = Transaction::where('team_id', $this->scopedTeamId())
+            ->whereHas('account', function ($query) use ($accountType): void {
                 $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
             })
                 ->whereDate('transaction_date', $currentDate)
