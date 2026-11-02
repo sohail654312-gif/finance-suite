@@ -61,6 +61,7 @@ jobs:
           tests/Feature/LegacyPostedJournalLineIntegrityTest.php
           tests/Feature/LegacyJournalBalanceIntegrityTest.php
           tests/Feature/LegacyJournalPostingHistoryTest.php
+          tests/Feature/PostingReversal
           tests/Feature/FinancialLifecycleAcceptanceTest.php
           tests/Feature/Api/WiseIntegrityTest.php
           tests/Feature/AccountSetupWizardTest.php

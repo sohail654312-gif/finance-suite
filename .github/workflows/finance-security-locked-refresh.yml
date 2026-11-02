@@ -2,10 +2,6 @@ name: Finance locked security proposal
 
 on:
   workflow_dispatch:
-  push:
-    branches: [finance-suite/security-ledger-milestone]
-    paths:
-      - .github/workflows/finance-security-locked-refresh.yml
 
 permissions:
   contents: read
