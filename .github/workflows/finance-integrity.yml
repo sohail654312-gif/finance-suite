@@ -2,8 +2,16 @@ name: Finance integrity regressions
 
 on:
   pull_request:
-    branches: [main, finance-suite/v1-completion]
+    branches: [main, finance-suite/v1-completion, finance-suite/security-ledger-milestone]
   workflow_dispatch:
+
+
+# Cancel obsolete runs for the SAME PR and workflow only. Retain all separate
+# security, accounting, coverage and deployment checks on the newest SHA.
+# Never cancel manual, default-branch or tagged release runs automatically.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
