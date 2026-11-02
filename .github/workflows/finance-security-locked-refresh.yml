@@ -1,92 +1,63 @@
-name: Finance one-shot locked security refresh
+name: Finance locked security proposal
 
-# This workflow runs once when this file is introduced on the controlled V1
-# candidate branch. A bot-authored lockfile commit cannot trigger it again.
 on:
+  workflow_dispatch:
   push:
-    branches: [finance-suite/v1-completion]
+    branches: [finance-suite/security-ledger-milestone]
     paths:
       - .github/workflows/finance-security-locked-refresh.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: finance-security-locked-refresh
+  group: finance-security-proposal-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  refresh:
-    if: github.ref == 'refs/heads/finance-suite/v1-completion'
+  proposal:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          persist-credentials: true
+          persist-credentials: false
       - name: Set up PHP 8.5
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.5'
           extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
           coverage: none
-      - name: Verify existing manifest
+      - name: Validate starting lock
         run: composer validate --strict
-      - name: Resolve only the five security-affected locked dependencies and their required dependencies
+      - name: Record dependency graph
         run: |
-          composer update \
-            filament/filament livewire/livewire \
-            symfony/http-foundation symfony/mime symfony/yaml \
-            --with-all-dependencies --minimal-changes \
-            --no-interaction --no-progress --no-scripts --no-audit
-      - name: Enforce exact lockfile security audit without exceptions
+          composer why --locked filament/filament
+          composer why --locked livewire/livewire
+      - name: Resolve patched packages and exact-version Filament companions
+        run: >-
+          composer update 'filament/*' livewire/livewire
+          symfony/http-foundation symfony/mime symfony/yaml
+          --with-all-dependencies --minimal-changes --no-install
+          --no-interaction --no-progress --no-scripts
+      - name: Validate audited proposal
         run: |
           composer validate --strict
-          composer audit --locked
+          composer audit --locked --format=json > security-audit.json
           git diff --check
-          if git diff --quiet -- composer.lock; then
-            echo "No lockfile update was produced; refusing a false security-fix commit."
-            exit 1
-          fi
           git diff --exit-code -- composer.json
-      - name: Prepare application and restore repository-owned modules
-        run: |
-          cp .env.testing .env
-          git restore --source=HEAD --worktree -- modules themes
-          php artisan key:generate
-      - name: Validate formatting across touched host code
-        run: vendor/bin/pint --test
-      - name: Analyse code under existing strictness
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Verify financial and tenancy regression cases
-        run: >-
-          php artisan test --compact
-          tests/Feature/Api/JournalEntryApiTest.php
-          tests/Feature/HostAccountingReportingIntegrityTest.php
-          tests/Feature/LegacyJournalBalanceIntegrityTest.php
-          tests/Feature/LegacyPostedJournalLineIntegrityTest.php
-          tests/Feature/JournalApprovalPostingIntegrityTest.php
-          tests/Feature/JournalApprovalsHttpTenantIntegrityTest.php
-          tests/Feature/ModularTenantOwnershipIntegrityTest.php
-      - name: Verify full application suite (coverage remains separately enforced)
-        run: php artisan test --compact
-      - name: Write audited Composer lockfile to candidate branch only
-        env:
-          EXPECTED_BRANCH: finance-suite/v1-completion
-        run: |
-          test "$GITHUB_REF_NAME" = "$EXPECTED_BRANCH"
-          test -z "$(git status --porcelain --untracked-files=no | grep -v '^ M composer.lock$')" || {
-            echo "Unexpected tracked modifications; refusing commit."
-            git status --short
-            exit 1
-          }
-          git add -- composer.lock
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(security): refresh five audited locked PHP dependencies"
-          git push origin "HEAD:refs/heads/$EXPECTED_BRANCH"
+          sha256sum composer.lock > composer.lock.sha256
+          git diff -- composer.lock > dependency-proposal.patch
+      - name: Preserve Composer-generated proposal for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: audited-dependency-proposal
+          path: |
+            composer.lock
+            composer.lock.sha256
+            security-audit.json
+            dependency-proposal.patch
+          retention-days: 14
 
-# This only repairs dependencies after a clean security audit, formatting,
-# static analysis, targeted and full tests. Strict 100% host Clover coverage,
-# integrated V1 lifecycle, and release approval remain separate red gates;
-# this workflow does not modify or bypass them.
+# No repository writes, persisted credentials, deployments or advisory ignores.
+# The proposal is not compatibility approval; all locked quality gates still apply.
