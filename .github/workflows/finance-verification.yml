@@ -2,13 +2,41 @@ name: Finance verification evidence
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, finance-suite/v1-completion]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install exact analysis baseline
+        run: |
+          composer validate --strict
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Static analysis
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G --error-format=json > phpstan.json
+      - name: Preserve static analysis diagnostics
+        if: always() && hashFiles('phpstan.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phpstan-${{ github.run_id }}
+          path: phpstan.json
+          retention-days: 14
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -34,9 +62,6 @@ jobs:
       - name: Check formatting
         if: always() && steps.install.outcome == 'success'
         run: vendor/bin/pint --test
-      - name: Static analysis
-        if: always() && steps.install.outcome == 'success'
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Full tests with required host coverage
         id: host_tests
         if: always() && steps.install.outcome == 'success'

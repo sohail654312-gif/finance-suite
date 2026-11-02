@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Liberu\Accounting\ChartOfAccounts\Models\Account;
@@ -60,9 +61,12 @@ class AccountingFinancialStatementsTest extends TestCase
 
     public function test_authenticated_api_exposes_book_scoped_statements(): void
     {
-        $entity = LegalEntity::create(['name' => 'API Statements Entity', 'currency_code' => 'USD']);
+        $user = User::factory()->create();
+        app(TeamManagementService::class)->createPersonalTeamForUser($user);
+        $user->refresh();
+        $entity = LegalEntity::create(['team_id' => $user->current_team_id, 'name' => 'API Statements Entity', 'currency_code' => 'USD']);
         $book = Book::create(['legal_entity_id' => $entity->id, 'name' => 'API Statements Book', 'code' => 'API', 'accounting_basis' => 'accrual']);
-        Sanctum::actingAs(User::factory()->create(), ['accounting.financial-statements.read']);
+        Sanctum::actingAs($user, ['accounting.financial-statements.read']);
 
         $this->getJson('/api/v1/accounting/financial-statements/profit-and-loss?book_id='.$book->id.'&start_date=2026-01-01&end_date=2026-01-31')
             ->assertOk()

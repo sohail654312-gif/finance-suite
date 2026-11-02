@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, finance-suite/v1-completion]
   workflow_dispatch:
 
 permissions:

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -19,6 +20,8 @@ class JournalEntryTest extends TestCase
         parent::setUp();
 
         $this->user = User::factory()->create();
+        app(TeamManagementService::class)->createPersonalTeamForUser($this->user);
+        $this->actingAs($this->user->refresh());
 
         // Create test accounts
         Account::create([

@@ -2,7 +2,7 @@ name: Finance integrity regressions
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, finance-suite/v1-completion]
   workflow_dispatch:
 
 permissions:
@@ -60,6 +60,9 @@ jobs:
           tests/Feature/JournalApprovalsHttpTenantIntegrityTest.php
           tests/Feature/LegacyPostedJournalLineIntegrityTest.php
           tests/Feature/LegacyJournalBalanceIntegrityTest.php
+          tests/Feature/LegacyJournalPostingHistoryTest.php
+          tests/Feature/PostingReversal
+          tests/Feature/FinancialLifecycleAcceptanceTest.php
           tests/Feature/Api/WiseIntegrityTest.php
           tests/Feature/AccountSetupWizardTest.php
           tests/Unit/HostCoverageGateTest.php tests/Unit/DoubleEntryAccountingTest.php
@@ -67,6 +70,53 @@ jobs:
           tests/Unit/Services/BudgetServiceTest.php
       - name: Diagnose foundation
         run: php artisan foundation:doctor
+
+  postgres-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: finance_suite_test
+          POSTGRES_USER: finance_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_DATABASE: finance_suite_test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: finance_test
+      DB_PASSWORD: synthetic-ci-only
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_pgsql, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install and audit exact lock
+        run: |
+          composer validate --strict
+          composer audit --locked
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+      - name: Prepare synthetic application
+        run: |
+          cp .env.testing .env
+          php artisan key:generate
+      - name: Prove competing PostgreSQL posting and reversal requests
+        run: vendor/bin/pest --compact tests/Postgres/LegacyJournalConcurrencyTest.php
 
 # The read-only security proposal is now reviewed and applied. Its exact cloud
 # evidence and SHA-256 are recorded in REVIEW-REPAIR-BASELINE.md. Locked audit

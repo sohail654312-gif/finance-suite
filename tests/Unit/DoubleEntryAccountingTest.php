@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\JournalEntryLine;
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -26,6 +27,8 @@ class DoubleEntryAccountingTest extends TestCase
         parent::setUp();
 
         $this->user = User::factory()->create();
+        app(TeamManagementService::class)->createPersonalTeamForUser($this->user);
+        $this->actingAs($this->user->refresh());
 
         // Create test accounts
         $this->cashAccount = Account::create([
@@ -198,8 +201,9 @@ class DoubleEntryAccountingTest extends TestCase
         $this->assertEquals($balanceAfterPost - 200.00, $this->cashAccount->balance);
         $this->assertEquals(0.00, $this->revenueAccount->balance);
 
-        $this->assertFalse($journalEntry->is_posted);
-        $this->assertNull($journalEntry->posted_at);
+        $this->assertTrue($journalEntry->is_posted);
+        $this->assertNotNull($journalEntry->posted_at);
+        $this->assertTrue($journalEntry->reversal()->firstOrFail()->is_posted);
     }
 
     public function test_prevents_posting_unbalanced_journal_entry(): void

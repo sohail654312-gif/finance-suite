@@ -13,7 +13,7 @@ final class JournalApprovalQuery
     public function paginate(?int $teamId = null, ?ApprovalStatus $status = null, int $perPage = 25): LengthAwarePaginator
     {
         return JournalApproval::query()
-            ->when($teamId !== null, fn ($query) => $query->where('team_id', $teamId))
+            ->where('team_id', $teamId !== null && $teamId > 0 ? $teamId : 0)
             ->when($status !== null, fn ($query) => $query->where('status', $status))
             ->with(['decisions', 'evidence'])
             ->latest('submitted_at')

@@ -10,6 +10,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Liberu\Accounting\FinancialStatements\Exceptions\InvalidStatementRequest;
+use Liberu\Accounting\FinancialStatements\Queries\OwnedStatementBook;
 use Liberu\Accounting\FinancialStatements\Queries\StatementQuery;
 
 final class FinancialStatementsController extends Controller
@@ -26,6 +27,7 @@ final class FinancialStatementsController extends Controller
     {
         Gate::authorize('accounting.financial-statements.view');
         $data = $request->validate(['book_id' => ['required', 'integer', 'min:1'], 'as_of_date' => ['required', 'date_format:Y-m-d'], 'dimensions' => ['nullable', 'array']]);
+        $this->ownedBook($request, (int) $data['book_id']);
 
         return $this->data($this->execute(fn (): array => $query->balanceSheet((int) $data['book_id'], $data['as_of_date'], $data['dimensions'] ?? null)));
     }
@@ -58,6 +60,8 @@ final class FinancialStatementsController extends Controller
             'dimensions' => ['nullable', 'array'],
         ]);
 
+        $this->ownedBook($request, (int) $data['book_id']);
+
         return $this->data($this->execute(fn (): array => $query->comparative((int) $data['book_id'], $data['start_date'], $data['end_date'], $data['comparative_start_date'], $data['comparative_end_date'], $data['dimensions'] ?? null)));
     }
 
@@ -71,6 +75,8 @@ final class FinancialStatementsController extends Controller
             'end_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:start_date'],
             'dimensions' => ['nullable', 'array'],
         ]);
+
+        app(OwnedStatementBook::class)->authorizeAccount((int) $data['book_id'], (int) $data['account_id'], $request->user());
 
         return $this->data($this->execute(fn (): array => $query->drillThrough((int) $data['book_id'], (int) $data['account_id'], $data['start_date'], $data['end_date'], $data['dimensions'] ?? null)));
     }
@@ -86,8 +92,14 @@ final class FinancialStatementsController extends Controller
         ]);
 
         $data['book_id'] = (int) $data['book_id'];
+        $this->ownedBook($request, $data['book_id']);
 
         return $data;
+    }
+
+    private function ownedBook(Request $request, int $bookId): void
+    {
+        app(OwnedStatementBook::class)->handle($bookId, $request->user());
     }
 
     private function data(array $data): JsonResponse

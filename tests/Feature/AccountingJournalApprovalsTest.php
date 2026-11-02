@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\User;
+use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Liberu\Accounting\JournalApprovals\Actions\DecideJournal;
 use Liberu\Accounting\JournalApprovals\Actions\PostJournal;
@@ -18,14 +20,18 @@ final class AccountingJournalApprovalsTest extends TestCase
 
     public function test_journal_can_be_submitted_approved_and_posted_with_evidence(): void
     {
+        $reviewer = User::factory()->create();
+        app(TeamManagementService::class)->createPersonalTeamForUser($reviewer);
+        $reviewer->refresh();
+        $this->actingAs($reviewer);
         $approval = app(SubmitJournal::class)->handle([
-            'team_id' => 1, 'approval_ref' => 'APR-001', 'journal_type' => 'accrual',
+            'team_id' => $reviewer->current_team_id, 'approval_ref' => 'APR-001', 'journal_type' => 'accrual',
             'journal_source' => 'ledger', 'journal_ref' => 'J-001', 'preparer_ref' => 'user-1',
             'currency' => 'gbp', 'amount' => 1500,
         ], [['kind' => 'invoice', 'file_ref' => 'file-1']]);
 
         $this->assertSame(ApprovalStatus::Pending, $approval->status);
-        $approval = app(DecideJournal::class)->handle($approval, 'user-2', true);
+        $approval = app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
         $approval = app(PostJournal::class)->handle($approval);
 
         $this->assertSame(ApprovalStatus::Posted, $approval->status);
