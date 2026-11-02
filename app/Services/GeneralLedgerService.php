@@ -116,8 +116,8 @@ class GeneralLedgerService
         $revenue = Transaction::where('team_id', $this->scopedTeamId())
             ->where('status', 'posted')
             ->whereHas('account', function ($query): void {
-            $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
-        })
+                $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
@@ -125,8 +125,8 @@ class GeneralLedgerService
         $previousRevenue = Transaction::where('team_id', $this->scopedTeamId())
             ->where('status', 'posted')
             ->whereHas('account', function ($query): void {
-            $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
-        })
+                $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
             ->sum('amount');
 
@@ -134,8 +134,8 @@ class GeneralLedgerService
         $expenses = Transaction::where('team_id', $this->scopedTeamId())
             ->where('status', 'posted')
             ->whereHas('account', function ($query): void {
-            $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
-        })
+                $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
@@ -143,8 +143,8 @@ class GeneralLedgerService
         $previousExpenses = Transaction::where('team_id', $this->scopedTeamId())
             ->where('status', 'posted')
             ->whereHas('account', function ($query): void {
-            $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
-        })
+                $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
             ->sum('amount');
 
@@ -186,9 +186,9 @@ class GeneralLedgerService
 
             $amount = Transaction::where('team_id', $this->scopedTeamId())
             ->where('status', 'posted')
-            ->whereHas('account', function ($query) use ($accountType): void {
-                $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
-            })
+                    ->whereHas('account', function ($query) use ($accountType): void {
+                    $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
+                })
                 ->whereDate('transaction_date', $currentDate)
                 ->sum('amount');
 
