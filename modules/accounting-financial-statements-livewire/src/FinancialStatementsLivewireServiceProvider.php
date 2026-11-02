@@ -13,6 +13,7 @@ final class FinancialStatementsLivewireServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'accounting-financial-statements-livewire');
+        Livewire::component('module-accounting-financial-statements-statements', Statements::class);
         Livewire::component('module-accounting-financial-statements::statements', Statements::class);
         Livewire::component('financial-statements', Statements::class);
     }

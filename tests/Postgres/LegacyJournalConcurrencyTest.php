@@ -8,6 +8,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\Process\InputStream;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -58,6 +59,9 @@ it('serializes competing legacy journal requests without duplicate financial eff
         $entry = App\Models\JournalEntry::findOrFail((int) $argv[1]);
         echo "ready\n";
         flush();
+        if (trim((string) fgets(STDIN)) !== 'go') {
+            exit(91);
+        }
         try {
             if ($argv[2] === 'edit') {
                 Illuminate\Support\Facades\DB::transaction(function () use ($entry): void {
@@ -83,13 +87,8 @@ it('serializes competing legacy journal requests without duplicate financial eff
         PHP;
 
     $processes = [];
-    DB::beginTransaction();
+    $inputs = [];
     try {
-        if ($secondEntry instanceof JournalEntry) {
-            Team::whereKey($team->getKey())->lockForUpdate()->firstOrFail();
-        } else {
-            JournalEntry::whereKey($entry->getKey())->lockForUpdate()->firstOrFail();
-        }
         for ($i = 0; $i < 2; $i++) {
             $entryId = $i === 1 && $secondEntry instanceof JournalEntry ? $secondEntry->getKey() : $entry->getKey();
             $action = $operation === 'reverse' ? 'reverse' : 'post';
@@ -97,11 +96,32 @@ it('serializes competing legacy journal requests without duplicate financial eff
                 $action = 'edit';
             }
             $process = new Process([PHP_BINARY, '-r', $worker, (string) $entryId, $action], base_path(), timeout: 30);
+            $input = new InputStream();
+            $process->setInput($input);
             $process->start();
             $processes[] = $process;
+            $inputs[] = $input;
         }
+        // Bootstrap both real applications before holding financial locks. Read
+        // accumulated output: waitUntil only observes newly arriving chunks and
+        // can miss a readiness message already captured while another child ran.
         foreach ($processes as $process) {
-            expect($process->waitUntil(fn (string $type, string $output): bool => str_contains($output, 'ready')))->toBeTrue();
+            $deadline = microtime(true) + 10;
+            while (! str_contains($process->getOutput(), "ready\n") && $process->isRunning() && microtime(true) < $deadline) {
+                $process->checkTimeout();
+                usleep(20_000);
+            }
+            expect($process->getOutput())->toContain("ready\n");
+        }
+        DB::beginTransaction();
+        if ($secondEntry instanceof JournalEntry) {
+            Team::whereKey($team->getKey())->lockForUpdate()->firstOrFail();
+        } else {
+            JournalEntry::whereKey($entry->getKey())->lockForUpdate()->firstOrFail();
+        }
+        foreach ($inputs as $input) {
+            $input->write("go\n");
+            $input->close();
         }
 
         // Prove both independent sessions actually contend for the held row;

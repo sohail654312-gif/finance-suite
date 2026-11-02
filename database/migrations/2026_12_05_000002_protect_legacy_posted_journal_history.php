@@ -34,7 +34,7 @@ return new class() extends Migration
 
         if (DB::getDriverName() === 'pgsql') {
             DB::unprepared(<<<'SQL'
-                CREATE FUNCTION protect_legacy_journal_history() RETURNS trigger LANGUAGE plpgsql AS $$
+                CREATE OR REPLACE FUNCTION protect_legacy_journal_history() RETURNS trigger LANGUAGE plpgsql AS $$
                 BEGIN
                     IF OLD.is_posted THEN
                         RAISE EXCEPTION 'Posted journal entries are immutable.';
@@ -46,7 +46,7 @@ return new class() extends Migration
                 CREATE TRIGGER legacy_journal_history BEFORE UPDATE OR DELETE ON journal_entries
                     FOR EACH ROW EXECUTE FUNCTION protect_legacy_journal_history();
 
-                CREATE FUNCTION protect_legacy_journal_lines() RETURNS trigger LANGUAGE plpgsql AS $$
+                CREATE OR REPLACE FUNCTION protect_legacy_journal_lines() RETURNS trigger LANGUAGE plpgsql AS $$
                 DECLARE
                     parent_id bigint;
                     old_parent bigint;

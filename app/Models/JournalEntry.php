@@ -249,7 +249,7 @@ class JournalEntry extends Model implements ApprovableRecord
                 throw new \DomainException('Reversal date must be a valid date on or after the original entry.');
             }
 
-            $reversal = new static();
+            $reversal = $entry->newInstance();
             $reversal->forceFill([
                 'entry_number' => 'REV-'.$entry->getKey(),
                 'entry_date' => $date,

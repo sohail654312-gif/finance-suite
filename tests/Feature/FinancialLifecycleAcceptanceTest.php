@@ -10,7 +10,7 @@ use Liberu\Accounting\ChartOfAccounts\Models\Account;
 use Liberu\Accounting\Core\Models\Book;
 use Liberu\Accounting\Core\Models\LegalEntity;
 use Liberu\Accounting\FinancialStatementsFilament\Pages\FinancialStatements;
-use Liberu\Accounting\FinancialStatementsLivewire\Livewire\Statements;
+use Liberu\Accounting\FinancialStatementsLivewire\FinancialStatementsLivewireServiceProvider;
 use Liberu\Accounting\GeneralLedger\Actions\PostJournal;
 use Liberu\Accounting\GeneralLedger\Actions\ReverseJournal;
 use Liberu\Accounting\GeneralLedger\Enums\JournalStatus;
@@ -160,21 +160,25 @@ it('denies a report when the persisted selected team was revoked despite a cache
 });
 
 it('denies foreign report books in Filament and Livewire before rendering financial data', function (): void {
+    $provider = $this->app->register(FinancialStatementsLivewireServiceProvider::class, force: true);
+    $provider->boot();
     $owner = financialLifecycleOwner();
     $other = financialLifecycleOwner();
     $entity = LegalEntity::create(['team_id' => $other->current_team_id, 'name' => 'UI Confidential', 'currency_code' => 'USD']);
     $book = Book::create(['legal_entity_id' => $entity->id, 'name' => 'UI Book', 'code' => 'UI']);
     Sanctum::actingAs($owner, financialLifecycleAbilities());
     expect(fn () => app(FinancialStatements::class)->mount((int) $book->id))->toThrow(ModelNotFoundException::class);
-    Livewire::test(Statements::class, ['bookId' => $book->id, 'startDate' => '2026-01-01', 'endDate' => '2026-01-31'])->assertNotFound();
+    Livewire::test('module-accounting-financial-statements-statements', ['bookId' => $book->id, 'startDate' => '2026-01-01', 'endDate' => '2026-01-31'])->assertNotFound();
 });
 
 it('rechecks report ownership on Livewire updates after the selected team is revoked', function (): void {
+    $provider = $this->app->register(FinancialStatementsLivewireServiceProvider::class, force: true);
+    $provider->boot();
     $owner = financialLifecycleOwner();
     $entity = LegalEntity::create(['team_id' => $owner->current_team_id, 'name' => 'UI Revoked', 'currency_code' => 'USD']);
     $book = Book::create(['legal_entity_id' => $entity->id, 'name' => 'UI Former Book', 'code' => 'REVOKED']);
     Sanctum::actingAs($owner, financialLifecycleAbilities());
-    $component = Livewire::test(Statements::class, ['bookId' => $book->id, 'startDate' => '2026-01-01', 'endDate' => '2026-01-31'])
+    $component = Livewire::test('module-accounting-financial-statements-statements', ['bookId' => $book->id, 'startDate' => '2026-01-01', 'endDate' => '2026-01-31'])
         ->assertSee('Net income: 0.00');
     User::query()->whereKey($owner->id)->update(['current_team_id' => null]);
     $component->set('statementType', 'balance_sheet')->assertForbidden();

@@ -15,6 +15,7 @@ use Liberu\Accounting\JournalApprovals\Models\ApprovalThreshold;
 use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 use Liberu\Accounting\JournalApprovals\Queries\JournalApprovalQuery;
 use Liberu\Accounting\JournalApprovalsFilament\Resources\JournalApprovalResource;
+use Liberu\Accounting\JournalApprovalsLivewire\JournalApprovalsLivewireServiceProvider;
 use Liberu\Accounting\JournalApprovalsLivewire\Livewire\JournalApprovals;
 use Livewire\Livewire;
 
@@ -213,6 +214,8 @@ it('denies stale API and panel access after persisted membership removal', funct
 });
 
 it('rechecks approval Livewire membership on subsequent renders', function (): void {
+    $provider = $this->app->register(JournalApprovalsLivewireServiceProvider::class, force: true);
+    $provider->boot();
     $owner = approvalHttpOwnedUser();
     $reviewer = approvalHttpOwnedUser();
     $team = $owner->currentTeam;

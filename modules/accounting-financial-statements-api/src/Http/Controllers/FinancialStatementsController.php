@@ -9,8 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
-use Liberu\Accounting\ChartOfAccounts\Models\Account;
-use Liberu\Accounting\Core\Models\Book;
 use Liberu\Accounting\FinancialStatements\Exceptions\InvalidStatementRequest;
 use Liberu\Accounting\FinancialStatements\Queries\OwnedStatementBook;
 use Liberu\Accounting\FinancialStatements\Queries\StatementQuery;
@@ -78,9 +76,7 @@ final class FinancialStatementsController extends Controller
             'dimensions' => ['nullable', 'array'],
         ]);
 
-        $book = $this->ownedBook($request, (int) $data['book_id']);
-        Account::query()->whereKey($data['account_id'])->where('team_id', $book->getAttribute('team_id'))
-            ->where('legal_entity_id', $book->getAttribute('legal_entity_id'))->firstOrFail();
+        app(OwnedStatementBook::class)->authorizeAccount((int) $data['book_id'], (int) $data['account_id'], $request->user());
 
         return $this->data($this->execute(fn (): array => $query->drillThrough((int) $data['book_id'], (int) $data['account_id'], $data['start_date'], $data['end_date'], $data['dimensions'] ?? null)));
     }
@@ -101,9 +97,9 @@ final class FinancialStatementsController extends Controller
         return $data;
     }
 
-    private function ownedBook(Request $request, int $bookId): Book
+    private function ownedBook(Request $request, int $bookId): void
     {
-        return app(OwnedStatementBook::class)->handle($bookId, $request->user());
+        app(OwnedStatementBook::class)->handle($bookId, $request->user());
     }
 
     private function data(array $data): JsonResponse
