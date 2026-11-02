@@ -7,6 +7,7 @@ namespace Liberu\Accounting\FinancialStatementsLivewire\Livewire;
 use DateTimeImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Liberu\Accounting\FinancialStatements\Enums\StatementType;
+use Liberu\Accounting\FinancialStatements\Queries\OwnedStatementBook;
 use Liberu\Accounting\FinancialStatements\Queries\StatementQuery;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -29,6 +30,7 @@ final class Statements extends Component
         if (! auth()->check()) {
             throw new AuthorizationException('Authentication is required to view financial statements.');
         }
+        app(OwnedStatementBook::class)->handle($bookId, auth()->user());
         $this->validateDate($startDate);
         $this->validateDate($endDate);
         if ($startDate > $endDate) {
@@ -49,6 +51,7 @@ final class Statements extends Component
 
     public function render(): mixed
     {
+        app(OwnedStatementBook::class)->handle($this->bookId, auth()->user());
         $query = app(StatementQuery::class);
         $statementType = StatementType::from($this->statementType);
         $statement = match ($statementType) {
