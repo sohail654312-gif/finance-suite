@@ -40,6 +40,69 @@ it('posts persisted lines with exact cents and accumulates repeated account line
         ->and($entry->is_posted)->toBeTrue();
 });
 
+it('blocks direct Eloquent draft promotion and forged posting timestamps', function (): void {
+    [$entry, $cash, $income] = legacyHistoryFixture();
+
+    expect(fn () => $entry->forceFill(['is_posted' => true])->save())
+        ->toThrow(DomainException::class, 'only change through the posting lifecycle');
+
+    $entry = $entry->fresh();
+    expect(fn () => $entry->forceFill(['posted_at' => now()])->save())
+        ->toThrow(DomainException::class, 'only change through the posting lifecycle');
+
+    expect($entry->fresh()->is_posted)->toBeFalse()
+        ->and($entry->fresh()->posted_at)->toBeNull()
+        ->and($cash->fresh()->balance)->toBe('0.00')
+        ->and($income->fresh()->balance)->toBe('0.00');
+
+    // The validated, balanced lifecycle remains available after a rejected forgery.
+    $entry->fresh()->post();
+    expect($entry->fresh()->is_posted)->toBeTrue()
+        ->and($cash->fresh()->balance)->toBe('0.30')
+        ->and($income->fresh()->balance)->toBe('0.30');
+});
+
+it('denies cross-tenant authenticated host posting even when the caller holds a journal model', function (): void {
+    [$entry, $cash, $income] = legacyHistoryFixture();
+    $stranger = User::factory()->create();
+    app(TeamManagementService::class)->createPersonalTeamForUser($stranger);
+    test()->actingAs($stranger->refresh());
+
+    expect(fn () => $entry->post())->toThrow(DomainException::class, 'persisted selected team');
+    expect($entry->fresh()->is_posted)->toBeFalse()
+        ->and($cash->fresh()->balance)->toBe('0.00')
+        ->and($income->fresh()->balance)->toBe('0.00');
+});
+
+it('denies stale membership and read-only members from posting a host journal', function (): void {
+    [$entry, $cash, $income, $team] = legacyHistoryFixture();
+    $member = User::factory()->create();
+    app(TeamManagementService::class)->createPersonalTeamForUser($member);
+    $team->users()->attach($member->getKey(), ['role' => 'viewer']);
+    expect($member->switchTeam($team))->toBeTrue();
+    test()->actingAs($member->refresh());
+
+    expect(fn () => $entry->post())->toThrow(DomainException::class, 'authorized accounting team role');
+    $team->users()->updateExistingPivot($member->getKey(), ['role' => 'accountant']);
+    DB::table('team_user')->where('team_id', $team->getKey())
+        ->where('user_id', $member->getKey())->delete();
+
+    expect(fn () => $entry->post())->toThrow(DomainException::class, 'authorized accounting team role');
+    expect($entry->fresh()->is_posted)->toBeFalse()
+        ->and($cash->fresh()->balance)->toBe('0.00')
+        ->and($income->fresh()->balance)->toBe('0.00');
+});
+
+it('permits persisted authorized team owner posting without bypassing the balanced ledger', function (): void {
+    [$entry, $cash, $income, $team] = legacyHistoryFixture();
+    test()->actingAs($team->owner()->firstOrFail()->refresh());
+
+    $entry->post();
+    expect($entry->fresh()->is_posted)->toBeTrue()
+        ->and($cash->fresh()->balance)->toBe('0.30')
+        ->and($income->fresh()->balance)->toBe('0.30');
+});
+
 it('rejects a second posting from a stale model without applying duplicate balances', function (): void {
     [$entry, $cash, $income] = legacyHistoryFixture();
     $stale = $entry->fresh();

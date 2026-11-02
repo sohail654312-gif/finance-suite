@@ -25,6 +25,12 @@ class JournalEntry extends Model implements ApprovableRecord
     use HasFactory;
     use IsTenantModel;
 
+    /**
+     * This flag is deliberately instance-local. External Eloquent saves must
+     * never turn a draft into posted history without posting the real lines.
+     */
+    private bool $postingThroughLifecycle = false;
+
     #[\Override]
     protected $fillable = [
         'entry_number',
@@ -75,6 +81,15 @@ class JournalEntry extends Model implements ApprovableRecord
         // so they skip this guard — acceptable because posted entries are already immutable. Upgrade path:
         // add a JournalEntryLine saving() guard if line-level backdating ever becomes possible.
         static::saving(function (JournalEntry $journalEntry): void {
+            // The posted state is not a user-editable field. The trusted posting
+            // method first validates persisted lines, account ownership and
+            // locked periods, then updates balances and history atomically.
+            if ($journalEntry->exists && ! $journalEntry->postingThroughLifecycle
+                && (($journalEntry->isDirty('is_posted') && $journalEntry->is_posted)
+                    || $journalEntry->isDirty('posted_at'))) {
+                throw new \DomainException('Journal posting state can only change through the posting lifecycle.');
+            }
+
             if ($journalEntry->exists && static::query()->whereKey($journalEntry->getKey())->where('is_posted', true)->exists()) {
                 throw new \DomainException('Posted journal entries are immutable; create a reversal instead.');
             }
@@ -202,6 +217,33 @@ class JournalEntry extends Model implements ApprovableRecord
             }
             $entry->setRelation('team', $team);
 
+            // The Eloquent posting method can also be reached by callers
+            // holding an arbitrary model instance. Never trust a cached
+            // currentTeam relationship or a previously revoked membership.
+            // Service/queue callers without an HTTP route or user are handled
+            // separately; request and authenticated-user paths are fail-closed.
+            if (auth()->check() || request()->route() !== null) {
+                $user = auth()->user();
+                if (! $user instanceof User) {
+                    throw new \DomainException('Journal posting requires an authenticated team member.');
+                }
+
+                $actorId = (int) $user->getKey();
+                $selectedTeamId = DB::table('users')->where('id', $actorId)
+                    ->lockForUpdate()->value('current_team_id');
+                if (! is_numeric($selectedTeamId) || (int) $selectedTeamId !== (int) $team->getKey()) {
+                    throw new \DomainException('Journal posting requires the persisted selected team.');
+                }
+
+                if ((int) $team->user_id !== $actorId
+                    && ! DB::table('team_user')->where('team_id', $team->getKey())
+                        ->where('user_id', $actorId)
+                        ->whereIn('role', ['admin', 'accountant'])
+                        ->exists()) {
+                    throw new \DomainException('Journal posting requires a current authorized accounting team role.');
+                }
+            }
+
             // A consistent account-lock order prevents lost updates between
             // different journals that share accounts, including repeated lines.
             $accounts = Account::query()->whereIn('id', $lines->pluck('account_id')->unique())
@@ -225,7 +267,12 @@ class JournalEntry extends Model implements ApprovableRecord
                 $account->save();
             }
 
-            $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
+            $entry->postingThroughLifecycle = true;
+            try {
+                $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
+            } finally {
+                $entry->postingThroughLifecycle = false;
+            }
         });
 
         return $this->refresh();
