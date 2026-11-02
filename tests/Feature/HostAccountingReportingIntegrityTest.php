@@ -159,3 +159,34 @@ it('fails closed when the reporting user has no selected company', function (): 
 
     expect(app(AgingReportService::class)->generateAgingReport())->toBeEmpty();
 });
+
+it('excludes foreign-company transactions that reference an account owned by the reporting company', function (): void {
+    $revenue = Account::factory()->create(['team_id' => $this->reportTeam->id, 'account_type' => 'revenue']);
+    $expense = Account::factory()->create(['team_id' => $this->reportTeam->id, 'account_type' => 'expense']);
+    $foreignUser = User::factory()->create();
+    $foreignTeam = app(TeamManagementService::class)->createPersonalTeamForUser($foreignUser);
+
+    foreach ([
+        [$revenue, $this->reportTeam->id, '2026-10-07', 120],
+        [$expense, $this->reportTeam->id, '2026-10-07', 30],
+        [$revenue, $foreignTeam->id, '2026-10-07', 9000],
+        [$expense, $foreignTeam->id, '2026-10-07', 7000],
+        [$revenue, $foreignTeam->id, '2026-09-15', 8000],
+    ] as [$account, $teamId, $date, $amount]) {
+        Transaction::factory()->create([
+            'team_id' => $teamId,
+            'account_id' => $account->id,
+            'transaction_date' => $date,
+            'amount' => $amount,
+        ]);
+    }
+
+    $metrics = app(GeneralLedgerService::class)->getKeyMetrics();
+
+    expect((float) $metrics['revenue'])->toBe(120.0)
+        ->and((float) $metrics['expenses'])->toBe(30.0)
+        ->and((float) $metrics['previousRevenue'])->toBe(0.0)
+        ->and((float) $metrics['netIncome'])->toBe(90.0)
+        ->and(array_map('floatval', $metrics['revenueChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 120.0])
+        ->and(array_map('floatval', $metrics['expensesChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 30.0]);
+});
