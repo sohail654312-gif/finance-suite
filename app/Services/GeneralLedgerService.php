@@ -185,8 +185,8 @@ class GeneralLedgerService
             $currentDate = (clone $startDate)->addDays($i);
 
             $amount = Transaction::where('team_id', $this->scopedTeamId())
-            ->where('status', 'posted')
-                    ->whereHas('account', function ($query) use ($accountType): void {
+                ->where('status', 'posted')
+                ->whereHas('account', function ($query) use ($accountType): void {
                     $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
                 })
                 ->whereDate('transaction_date', $currentDate)
