@@ -16,7 +16,6 @@ use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 use Liberu\Accounting\JournalApprovals\Queries\JournalApprovalQuery;
 use Liberu\Accounting\JournalApprovalsFilament\Resources\JournalApprovalResource;
 use Liberu\Accounting\JournalApprovalsLivewire\JournalApprovalsLivewireServiceProvider;
-use Liberu\Accounting\JournalApprovalsLivewire\Livewire\JournalApprovals;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -225,7 +224,7 @@ it('rechecks approval Livewire membership on subsequent renders', function (): v
     $approval = approvalHttpFixture($owner);
     $this->actingAs($reviewer);
 
-    $component = Livewire::test(JournalApprovals::class)->assertSee($approval->approval_ref);
+    $component = Livewire::test('module-accounting-journal-approvals-approvals')->assertSee($approval->approval_ref);
     DB::table('team_user')->where('team_id', $team->getKey())->where('user_id', $reviewer->getKey())->delete();
 
     $component->call('$refresh')->assertForbidden();

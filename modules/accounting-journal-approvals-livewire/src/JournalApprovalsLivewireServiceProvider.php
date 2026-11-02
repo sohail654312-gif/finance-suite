@@ -12,6 +12,7 @@ final class JournalApprovalsLivewireServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
+        Livewire::component('module-accounting-journal-approvals-approvals', JournalApprovals::class);
         Livewire::component('module-accounting-journal-approvals::approvals', JournalApprovals::class);
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'module-accounting-journal-approvals-livewire');
     }
