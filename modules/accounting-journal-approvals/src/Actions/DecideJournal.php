@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Liberu\Accounting\JournalApprovals\Actions;
 
 use Illuminate\Support\Facades\DB;
+use Liberu\Accounting\JournalApprovals\ApprovalAuthority;
 use Liberu\Accounting\JournalApprovals\Enums\ApprovalStatus;
 use Liberu\Accounting\JournalApprovals\Enums\DecisionType;
 use Liberu\Accounting\JournalApprovals\Events\JournalApproved;
@@ -14,7 +15,11 @@ use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 
 final class DecideJournal
 {
-    /** @param list<string> $actorRoles */
+    public function __construct(private readonly ApprovalAuthority $authority) {}
+
+    /**
+     * @param  list<string>  $actorRoles  Compatibility parameter; qualifications are always resolved from persisted membership.
+     */
     public function handle(
         JournalApproval $approval,
         string $actor,
@@ -22,7 +27,7 @@ final class DecideJournal
         ?string $comment = null,
         array $actorRoles = [],
     ): JournalApproval {
-        return DB::transaction(function () use ($approval, $actor, $approved, $comment, $actorRoles): JournalApproval {
+        return DB::transaction(function () use ($approval, $actor, $approved, $comment): JournalApproval {
             $approval = JournalApproval::query()
                 ->whereKey($approval->getKey())
                 ->lockForUpdate()
@@ -41,9 +46,14 @@ final class DecideJournal
                 throw new InvalidApproval('The same reviewer cannot decide the journal more than once.');
             }
 
+            if (! is_numeric($approval->team_id) || (int) $approval->team_id < 1) {
+                throw new InvalidApproval('A journal approval must belong to a team before it can be decided.');
+            }
+            $reviewerRole = $this->authority->reviewerRole((int) $approval->team_id, $actor);
+
             $threshold = $this->applicableThreshold($approval);
             if ($threshold instanceof ApprovalThreshold
-                && ! in_array($threshold->reviewer_role, $actorRoles, true)) {
+                && $threshold->reviewer_role !== $reviewerRole) {
                 throw new InvalidApproval('The reviewer does not satisfy the required approval role.');
             }
 
@@ -52,9 +62,7 @@ final class DecideJournal
                 'decision' => $approved ? DecisionType::Approved : DecisionType::Rejected,
                 'comment' => $comment,
                 'decided_at' => now(),
-                'metadata' => $threshold instanceof ApprovalThreshold
-                    ? ['reviewer_role' => $threshold->reviewer_role]
-                    : null,
+                'metadata' => ['reviewer_role' => $reviewerRole],
             ]);
 
             if (! $approved) {

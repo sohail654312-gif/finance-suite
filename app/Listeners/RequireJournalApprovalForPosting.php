@@ -7,6 +7,7 @@ namespace App\Listeners;
 use Liberu\Accounting\Core\Models\LegalEntity;
 use Liberu\Accounting\GeneralLedger\Events\AuthorizingJournalPost;
 use Liberu\Accounting\GeneralLedger\Exceptions\InvalidJournal;
+use Liberu\Accounting\JournalApprovals\ApprovalAuthority;
 use Liberu\Accounting\JournalApprovals\Enums\ApprovalStatus;
 use Liberu\Accounting\JournalApprovals\Enums\DecisionType;
 use Liberu\Accounting\JournalApprovals\Models\ApprovalThreshold;
@@ -72,6 +73,7 @@ final class RequireJournalApprovalForPosting
             ->get()
             ->filter(fn ($decision): bool => $decision->getAttribute('actor_ref') !== $approval->preparer_ref)
             ->filter(fn ($decision): bool => data_get($decision->getAttribute('metadata'), 'reviewer_role') === $threshold->getAttribute('reviewer_role'))
+            ->filter(fn ($decision): bool => app(ApprovalAuthority::class)->persistedRole((int) $teamId, (string) $decision->getAttribute('actor_ref'), true) === $threshold->getAttribute('reviewer_role'))
             ->unique('actor_ref')
             ->count();
 

@@ -9,12 +9,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Liberu\Accounting\JournalApprovals\Actions\AddEvidence;
 use Liberu\Accounting\JournalApprovals\Actions\ConfigureThreshold;
 use Liberu\Accounting\JournalApprovals\Actions\DecideJournal;
 use Liberu\Accounting\JournalApprovals\Actions\SubmitJournal;
+use Liberu\Accounting\JournalApprovals\ApprovalAuthority;
 use Liberu\Accounting\JournalApprovals\Enums\ApprovalStatus;
 use Liberu\Accounting\JournalApprovals\Exceptions\InvalidApproval;
 use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
@@ -61,26 +61,14 @@ final class JournalApprovalsController extends Controller
         $this->authorizeApproval($request, $approval, 'accounting.journal-approvals.write');
         $data = $request->validate(['actor_ref' => ['prohibited'], 'approved' => ['required', 'boolean'], 'comment' => ['nullable', 'string', 'max:5000']]);
 
-        // Resolve qualifications from the authenticated user's persisted membership
-        // of this selected team. Never trust actor_ref or role claims from JSON.
         $user = $request->user();
         if (($user instanceof Model) === false) {
             abort(403);
         }
-        $teamId = $this->ownedTeamId($request, 'accounting.journal-approvals.write');
         $actor = (string) $user->getAuthIdentifier();
-        $membershipRole = DB::table('team_user')
-            ->where('team_id', $teamId)
-            ->where('user_id', $user->getKey())
-            ->value('role');
-        $roles = is_string($membershipRole) && $membershipRole !== '' ? [$membershipRole] : [];
-        $team = $user->getRelationValue('currentTeam');
-        if ($team instanceof Model && method_exists($user, 'ownsTeam') && $user->ownsTeam($team)) {
-            $roles[] = 'owner';
-        }
 
         try {
-            return new JournalApprovalResource($action->handle($approval, $actor, (bool) $data['approved'], $data['comment'] ?? null, $roles));
+            return new JournalApprovalResource($action->handle($approval, $actor, (bool) $data['approved'], $data['comment'] ?? null));
         } catch (InvalidApproval $e) {
             throw ValidationException::withMessages(['approval' => $e->getMessage()]);
         }
@@ -124,7 +112,11 @@ final class JournalApprovalsController extends Controller
 
         $data['team_id'] = $teamId;
 
-        return response()->json(['data' => $action->handle($data)], 201);
+        try {
+            return response()->json(['data' => $action->handle($data)], 201);
+        } catch (InvalidApproval $e) {
+            throw ValidationException::withMessages(['threshold' => $e->getMessage()]);
+        }
     }
 
     private function ownedTeamId(Request $request, string $ability): int
@@ -133,13 +125,10 @@ final class JournalApprovalsController extends Controller
         if (($user instanceof Model) === false || method_exists($user, 'tokenCan') === false || $user->tokenCan($ability) === false) {
             abort(403);
         }
-        $rawId = $user->getAttribute('current_team_id');
-        $team = $user->getRelationValue('currentTeam');
-        abort_unless(is_numeric($rawId) && (int) $rawId > 0
-            && $team instanceof Model && (int) $team->getKey() === (int) $rawId
-            && method_exists($user, 'belongsToTeam') && $user->belongsToTeam($team), 403);
+        $teamId = app(ApprovalAuthority::class)->selectedTeamId();
+        abort_if($teamId === null, 403);
 
-        return (int) $rawId;
+        return (int) $teamId;
     }
 
     private function authorizeApproval(Request $request, JournalApproval $approval, string $ability): void

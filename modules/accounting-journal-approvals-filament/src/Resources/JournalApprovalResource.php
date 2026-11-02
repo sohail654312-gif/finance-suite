@@ -9,6 +9,9 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Liberu\Accounting\JournalApprovals\ApprovalAuthority;
 use Liberu\Accounting\JournalApprovals\Models\JournalApproval;
 
 final class JournalApprovalResource extends Resource
@@ -16,6 +19,43 @@ final class JournalApprovalResource extends Resource
     protected static ?string $model = JournalApproval::class;
 
     protected static ?string $navigationLabel = 'Journal approvals';
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('team_id', app(ApprovalAuthority::class)->selectedTeamId() ?? 0);
+    }
+
+    public static function canViewAny(): bool
+    {
+        return app(ApprovalAuthority::class)->selectedTeamId() !== null;
+    }
+
+    public static function canView(Model $record): bool
+    {
+        $teamId = app(ApprovalAuthority::class)->selectedTeamId();
+
+        return $teamId !== null && (int) $record->getAttribute('team_id') === $teamId;
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return false;
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return false;
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return false;
+    }
 
     public static function form(Schema $schema): Schema
     {

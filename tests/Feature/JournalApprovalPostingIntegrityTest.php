@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Liberu\Accounting\ChartOfAccounts\Models\Account;
 use Liberu\Accounting\Core\Models\Book;
 use Liberu\Accounting\Core\Models\LegalEntity;
@@ -93,6 +94,20 @@ function submitLedgerApproval(JournalEntry $journal, string $amount = '100.00', 
     ]);
 }
 
+function authenticatedApprovalReviewer(JournalEntry $journal, string $role = 'accountant'): User
+{
+    $reviewer = User::factory()->create();
+    DB::table('team_user')->insert([
+        'team_id' => $journal->team_id,
+        'user_id' => $reviewer->getKey(),
+        'role' => $role,
+    ]);
+    $reviewer->forceFill(['current_team_id' => $journal->team_id])->save();
+    test()->actingAs($reviewer);
+
+    return $reviewer;
+}
+
 it('blocks a protected ledger journal when no linked approval exists', function (): void {
     [, $journal] = protectedLedgerJournal();
     protectJournal($journal);
@@ -111,7 +126,8 @@ it('rejects self approval and reviewers without the configured role', function (
     expect(fn () => app(DecideJournal::class)->handle($approval, 'preparer-1', true, null, ['accountant']))
         ->toThrow(InvalidApproval::class, 'cannot approve their own journal');
 
-    expect(fn () => app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['viewer']))
+    $reviewer = authenticatedApprovalReviewer($journal, 'viewer');
+    expect(fn () => app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true, null, ['accountant']))
         ->toThrow(InvalidApproval::class, 'required approval role');
 
     expect($approval->refresh()->status)->toBe(ApprovalStatus::Pending)
@@ -123,13 +139,15 @@ it('requires the configured number of distinct qualified approvals', function ()
     protectJournal($journal, 2);
     $approval = submitLedgerApproval($journal);
 
-    $approval = app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['accountant']);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    $approval = app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
     expect($approval->status)->toBe(ApprovalStatus::Pending);
 
     expect(fn () => app(PostLedgerJournal::class)->handle($journal, 'poster-1'))
         ->toThrow(InvalidJournal::class, 'requires an approved posting authorization');
 
-    $approval = app(DecideJournal::class)->handle($approval, 'reviewer-2', true, null, ['accountant']);
+    $secondReviewer = authenticatedApprovalReviewer($journal);
+    $approval = app(DecideJournal::class)->handle($approval, (string) $secondReviewer->getKey(), true);
     expect($approval->status)->toBe(ApprovalStatus::Approved);
 
     $posted = app(PostLedgerJournal::class)->handle($journal, 'poster-1');
@@ -143,7 +161,8 @@ it('rejects an approval whose amount does not match the protected journal', func
     [, $journal] = protectedLedgerJournal();
     protectJournal($journal);
     $approval = submitLedgerApproval($journal, '99.00');
-    $approval = app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['accountant']);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    $approval = app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
 
     expect($approval->status)->toBe(ApprovalStatus::Approved);
 
@@ -158,7 +177,8 @@ it('rejects an approved journal authorization denominated in another currency', 
     [, $journal] = protectedLedgerJournal();
     protectJournal($journal);
     $approval = submitLedgerApproval($journal, '100.00', 'preparer-1', 'USD');
-    $approval = app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['accountant']);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    $approval = app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
 
     expect($approval->status)->toBe(ApprovalStatus::Approved);
     expect(fn () => app(PostLedgerJournal::class)->handle($journal, 'poster-1'))
@@ -210,4 +230,60 @@ it('keeps an approval reference bound to its original journal and exact amount',
 
     expect($approval->fresh()->amount)->toBe('100.00')
         ->and($approval->fresh()->decisions()->count())->toBe(0);
+});
+
+it('rejects internal reviewer impersonation even with claimed qualifying roles', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    $imposter = User::factory()->create();
+
+    expect(fn () => app(DecideJournal::class)->handle($approval, (string) $imposter->getKey(), true, null, ['accountant']))
+        ->toThrow(InvalidApproval::class, 'authenticated member');
+    expect($approval->decisions()->count())->toBe(0);
+
+    $decided = app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
+    expect($decided->status)->toBe(ApprovalStatus::Approved)
+        ->and($decided->decisions()->first()->actor_ref)->toBe((string) $reviewer->getKey());
+});
+
+it('rejects an internal decision by an authenticated member of another tenant', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal);
+    [$stranger] = protectedLedgerJournal();
+    $this->actingAs($stranger);
+
+    expect(fn () => app(DecideJournal::class)->handle($approval, (string) $stranger->getKey(), true, null, ['accountant']))
+        ->toThrow(InvalidApproval::class, 'authenticated member');
+    expect($approval->fresh()->status)->toBe(ApprovalStatus::Pending)
+        ->and($approval->decisions()->count())->toBe(0);
+});
+
+it('invalidates a pending posting authorization after reviewer role revocation', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true);
+
+    DB::table('team_user')->where('team_id', $journal->team_id)
+        ->where('user_id', $reviewer->getKey())->update(['role' => 'viewer']);
+
+    expect(fn () => app(PostLedgerJournal::class)->handle($journal, 'poster-1'))
+        ->toThrow(InvalidJournal::class, 'enough qualified approvals');
+    expect($journal->fresh()->status)->toBe(JournalStatus::Draft)
+        ->and($approval->fresh()->status)->toBe(ApprovalStatus::Approved)
+        ->and($approval->decisions()->count())->toBe(1);
+});
+
+it('rejects an internal decision without an authenticated human identity', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal);
+
+    expect(fn () => app(DecideJournal::class)->handle($approval, 'reviewer-1', true, null, ['accountant']))
+        ->toThrow(InvalidApproval::class, 'authenticated member');
+    expect($approval->decisions()->count())->toBe(0);
 });

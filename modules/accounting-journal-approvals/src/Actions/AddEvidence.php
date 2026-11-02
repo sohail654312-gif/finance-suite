@@ -17,8 +17,8 @@ final class AddEvidence
         }
 
         return JournalEvidence::create([
-            'approval_id' => $approval->getKey(),
             ...$attributes,
+            'approval_id' => $approval->getKey(),
         ]);
     }
 }
