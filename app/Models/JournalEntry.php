@@ -10,8 +10,10 @@ use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property int|null $team_id
@@ -73,6 +75,9 @@ class JournalEntry extends Model implements ApprovableRecord
         // so they skip this guard — acceptable because posted entries are already immutable. Upgrade path:
         // add a JournalEntryLine saving() guard if line-level backdating ever becomes possible.
         static::saving(function (JournalEntry $journalEntry): void {
+            if ($journalEntry->exists && static::query()->whereKey($journalEntry->getKey())->where('is_posted', true)->exists()) {
+                throw new \DomainException('Posted journal entries are immutable; create a reversal instead.');
+            }
             // currentTeam() is a loose Jetstream relation (bare Model), so narrow to Team.
             // books_locked_before is a nullable date; normalise to Carbon so the compare
             // and format are type-safe. entry_date is a non-null date cast.
@@ -88,6 +93,12 @@ class JournalEntry extends Model implements ApprovableRecord
                     $entryDate->toDateString(),
                     $lock->toDateString(),
                 ));
+            }
+        });
+
+        static::deleting(function (JournalEntry $journalEntry): void {
+            if (static::query()->whereKey($journalEntry->getKey())->where('is_posted', true)->exists()) {
+                throw new \DomainException('Posted journal entries are immutable; create a reversal instead.');
             }
         });
     }
@@ -108,6 +119,12 @@ class JournalEntry extends Model implements ApprovableRecord
     public function lines(): HasMany
     {
         return $this->hasMany(JournalEntryLine::class);
+    }
+
+    /** @return HasOne<JournalEntry, $this> */
+    public function reversal(): HasOne
+    {
+        return $this->hasOne(self::class, 'reversal_of_id');
     }
 
     public function counterpartyTeam()
@@ -163,69 +180,102 @@ class JournalEntry extends Model implements ApprovableRecord
 
     public function post(): static
     {
-        if ($this->is_posted) {
-            throw new \Exception('Journal entry is already posted.');
-        }
+        DB::transaction(function (): void {
+            $entry = static::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            if ($entry->is_posted) {
+                throw new \DomainException('Journal entry is already posted.');
+            }
 
-        if (! $this->isBalanced()) {
-            throw new \Exception('Journal entry must be balanced before posting.');
-        }
+            // Read persisted rows after obtaining the parent lock. Cached model
+            // relations and stale callers must never decide financial effects.
+            // Database line guards acquire this same parent lock. Avoid taking
+            // child locks here: SQL UPDATE takes its child lock before its
+            // trigger runs, so reversing that order would introduce deadlocks.
+            $lines = $entry->lines()->orderBy('id')->get();
+            if (! $entry->isBalanced()) {
+                throw new \DomainException('Journal entry must be balanced before posting.');
+            }
 
-        \DB::transaction(function (): void {
-            // Validate every posting account before mutating balances.
-            // A balanced journal must not include another company's accounts.
-            foreach ($this->lines as $line) {
-                $account = $line->account;
-                if ((string) $account->team_id !== (string) $this->team_id) {
+            $team = Team::query()->whereKey($entry->team_id)->lockForUpdate()->first();
+            if (! $team instanceof Team) {
+                throw new \DomainException('Journal entry must belong to a posting team.');
+            }
+            $entry->setRelation('team', $team);
+
+            // A consistent account-lock order prevents lost updates between
+            // different journals that share accounts, including repeated lines.
+            $accounts = Account::query()->whereIn('id', $lines->pluck('account_id')->unique())
+                ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            foreach ($lines as $line) {
+                $account = $accounts->get($line->account_id);
+                if (! $account instanceof Account || (string) $account->team_id !== (string) $entry->team_id) {
                     throw new \DomainException('Journal accounts must belong to the posting team.');
                 }
+                if (! in_array($account->normal_balance, ['debit', 'credit'], true)) {
+                    throw new \DomainException('Journal accounts must have a valid normal balance.');
+                }
             }
 
-            foreach ($this->lines as $line) {
-                $account = $line->account;
-
-                if ($account->normal_balance === 'debit') {
-                    $account->balance += $line->debit_amount - $line->credit_amount;
-                } else {
-                    $account->balance += $line->credit_amount - $line->debit_amount;
-                }
-
+            foreach ($lines as $line) {
+                $account = $accounts->get($line->account_id);
+                $change = $account->normal_balance === 'debit'
+                    ? bcsub($line->debit_amount, $line->credit_amount, 2)
+                    : bcsub($line->credit_amount, $line->debit_amount, 2);
+                $account->balance = bcadd($account->balance, $change, 2);
                 $account->save();
             }
 
-            $this->is_posted = true;
-            $this->posted_at = now();
-            $this->save();
+            $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
         });
 
-        return $this;
+        return $this->refresh();
     }
 
-    public function reverse(): static
+    public function reverse(?string $entryDate = null): static
     {
-        if (! $this->is_posted) {
-            throw new \Exception('Cannot reverse an unposted journal entry.');
-        }
-
-        \DB::transaction(function (): void {
-            foreach ($this->lines as $line) {
-                $account = $line->account;
-
-                if ($account->normal_balance === 'debit') {
-                    $account->balance -= $line->debit_amount - $line->credit_amount;
-                } else {
-                    $account->balance -= $line->credit_amount - $line->debit_amount;
-                }
-
-                $account->save();
+        DB::transaction(function () use ($entryDate): void {
+            $entry = static::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            if (! $entry->is_posted) {
+                throw new \DomainException('Cannot reverse an unposted journal entry.');
+            }
+            if ($entry->reversal()->exists()) {
+                throw new \DomainException('Journal entry is already reversed.');
             }
 
-            $this->is_posted = false;
-            $this->posted_at = null;
-            $this->save();
+            $date = $entryDate ?? today()->toDateString();
+            if (! preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date)
+                || ! checkdate((int) substr($date, 5, 2), (int) substr($date, 8, 2), (int) substr($date, 0, 4))
+                || Carbon::parse($date)->lt($entry->entry_date)) {
+                throw new \DomainException('Reversal date must be a valid date on or after the original entry.');
+            }
+
+            $reversal = new static();
+            $reversal->forceFill([
+                'entry_number' => 'REV-'.$entry->getKey(),
+                'entry_date' => $date,
+                'entry_type' => 'reversing',
+                'reference_number' => $entry->entry_number,
+                'memo' => 'Reversal of '.$entry->entry_number,
+                'team_id' => $entry->team_id,
+                'user_id' => auth()->id() ?? $entry->user_id,
+                'reversal_of_id' => $entry->getKey(),
+            ])->save();
+
+            foreach ($entry->lines()->orderBy('id')->get() as $line) {
+                $reversal->lines()->create([
+                    'account_id' => $line->account_id,
+                    'debit_amount' => $line->credit_amount,
+                    'credit_amount' => $line->debit_amount,
+                    'description' => $line->description,
+                    'department' => $line->department,
+                    'cost_center' => $line->cost_center,
+                ]);
+            }
+
+            $reversal->post();
         });
 
-        return $this;
+        return $this->refresh();
     }
 
     protected static function generateEntryNumber(): string

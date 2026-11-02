@@ -12,12 +12,10 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * Un-posts a posted invoice or payment: reverses its journal entry (undoing the
- * account balances via JournalEntry::reverse()), clears the source's
- * journal_entry_id so it can be re-posted, and resets derived status.
- *
- * ponytail: mutate-unpost, not an audit-trail reversing entry — the now-unposted
- * original entry lingers. Reversing recognized revenue / cascade are later slices.
+ * Corrects a posted invoice or payment with a balanced compensating journal.
+ * The original posting and its timestamp remain immutable; the reversal links
+ * back to that journal. The source link is cleared to permit a later posting,
+ * and derived payment status is recomputed. Recognized revenue remains guarded.
  */
 class PostingReversalService
 {
