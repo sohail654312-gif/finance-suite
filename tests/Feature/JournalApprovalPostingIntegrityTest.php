@@ -287,3 +287,28 @@ it('rejects an internal decision without an authenticated human identity', funct
         ->toThrow(InvalidApproval::class, 'authenticated member');
     expect($approval->decisions()->count())->toBe(0);
 });
+
+it('rejects a selected-team change between the ownership lookup and the locked decision', function (): void {
+    [, $journal] = protectedLedgerJournal();
+    protectJournal($journal);
+    $approval = submitLedgerApproval($journal);
+    $reviewer = authenticatedApprovalReviewer($journal);
+    $otherOwner = User::factory()->create();
+    $otherTeam = app(TeamManagementService::class)->createPersonalTeamForUser($otherOwner);
+    $changed = false;
+
+    // Schedule the state change exactly after the initial persisted identity
+    // read. The approval must recheck the selection under its write lock.
+    User::retrieved(function (User $identity) use ($reviewer, $otherTeam, &$changed): void {
+        if (! $changed && $identity->getKey() === $reviewer->getKey()) {
+            $changed = true;
+            DB::table('users')->where('id', $reviewer->getKey())->update(['current_team_id' => $otherTeam->getKey()]);
+        }
+    });
+
+    expect(fn () => app(DecideJournal::class)->handle($approval, (string) $reviewer->getKey(), true))
+        ->toThrow(InvalidApproval::class, 'selected journal team changed');
+    expect($changed)->toBeTrue()
+        ->and($approval->fresh()->status)->toBe(ApprovalStatus::Pending)
+        ->and($approval->decisions()->count())->toBe(0);
+});

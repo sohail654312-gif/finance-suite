@@ -36,6 +36,14 @@ final class ApprovalAuthority
             throw new InvalidApproval('An authenticated member of the selected journal team must decide the approval.');
         }
 
+        // Selection can change after the initial ownership lookup. Decisions
+        // and configuration run in a transaction, so retain this identity lock
+        // until the authorization and resulting write have both completed.
+        $selectedTeamId = DB::table('users')->where('id', $actor)->lockForUpdate()->value('current_team_id');
+        if (! is_numeric($selectedTeamId) || (int) $selectedTeamId !== $teamId) {
+            throw new InvalidApproval('The selected journal team changed before authorization.');
+        }
+
         $role = $this->persistedRole($teamId, $actor, true);
         if ($role === null) {
             throw new InvalidApproval('The reviewer is no longer a member of the journal team.');

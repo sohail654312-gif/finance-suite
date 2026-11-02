@@ -145,6 +145,8 @@ it('denies every financial statement endpoint for another tenant book', function
     $parameters = ['book_id' => $book->id, 'account_id' => $account->id, 'start_date' => '2026-01-01', 'end_date' => '2026-01-31',
         'as_of_date' => '2026-01-31', 'comparative_start_date' => '2025-01-01', 'comparative_end_date' => '2025-01-31'];
     $this->getJson('/api/v1/accounting/financial-statements/'.$report.'?'.http_build_query($parameters))->assertNotFound();
+    Sanctum::actingAs($other, financialLifecycleAbilities());
+    $this->getJson('/api/v1/accounting/financial-statements/'.$report.'?'.http_build_query($parameters))->assertOk();
 })->with(['profit-and-loss', 'balance-sheet', 'cash-flow', 'changes-in-equity', 'comparative', 'drill-through']);
 
 it('denies a report when the persisted selected team was revoked despite a cached authenticated identity', function (): void {
