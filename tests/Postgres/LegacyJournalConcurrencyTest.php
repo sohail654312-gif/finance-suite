@@ -128,6 +128,11 @@ it('serializes competing legacy journal requests without duplicate financial eff
         // starting two sequential requests is not concurrency evidence.
         $deadline = microtime(true) + 10;
         do {
+            foreach ($processes as $process) {
+                // Symfony pumps the stdin streams while updating process I/O.
+                $process->isRunning();
+                $process->checkTimeout();
+            }
             DB::select('SELECT pg_stat_clear_snapshot()');
             $waiting = DB::selectOne("SELECT count(*) AS total FROM pg_stat_activity WHERE application_name = 'legacy_journal_race' AND wait_event_type = 'Lock'");
             if ((int) $waiting->total === 2) {
