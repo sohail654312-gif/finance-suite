@@ -36,8 +36,9 @@ jobs:
           composer why --locked livewire/livewire
       - name: Resolve patched packages and exact-version Filament companions
         run: >-
-          composer update 'filament/*' livewire/livewire
-          symfony/http-foundation symfony/mime symfony/yaml
+          composer update filament/filament:5.8.3
+          filament/spatie-laravel-settings-plugin:5.8.3 livewire/livewire:4.4.8
+          symfony/http-foundation:8.1.7 symfony/mime:8.1.10 symfony/yaml:8.1.6
           --with-all-dependencies --minimal-changes --no-install
           --no-interaction --no-progress --no-scripts
       - name: Validate audited proposal
