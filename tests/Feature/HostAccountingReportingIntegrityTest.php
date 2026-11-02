@@ -190,3 +190,34 @@ it('excludes foreign-company transactions that reference an account owned by the
         ->and(array_map('floatval', $metrics['revenueChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 120.0])
         ->and(array_map('floatval', $metrics['expensesChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 30.0]);
 });
+
+it('excludes non-posted draft transactions from comparative financial KPIs and charts', function (): void {
+    $revenue = Account::factory()->create(['team_id' => $this->reportTeam->id, 'account_type' => 'revenue']);
+    $expense = Account::factory()->create(['team_id' => $this->reportTeam->id, 'account_type' => 'expense']);
+
+    foreach ([
+        [$revenue, '2026-10-07', 'posted', '120.00'],
+        [$expense, '2026-10-07', 'posted', '20.00'],
+        [$revenue, '2026-10-07', 'draft', '9999.00'],
+        [$expense, '2026-10-07', 'draft', '9999.00'],
+        [$revenue, '2026-09-15', 'draft', '5000.00'],
+    ] as [$account, $date, $status, $amount]) {
+        Transaction::factory()->create([
+            'team_id' => $this->reportTeam->id,
+            'account_id' => $account->id,
+            'transaction_date' => $date,
+            'status' => $status,
+            'amount' => $amount,
+        ]);
+    }
+
+    $metrics = app(GeneralLedgerService::class)->getKeyMetrics();
+
+    expect((float) $metrics['revenue'])->toBe(120.0)
+        ->and((float) $metrics['expenses'])->toBe(20.0)
+        ->and((float) $metrics['netIncome'])->toBe(100.0)
+        ->and((float) $metrics['previousRevenue'])->toBe(0.0)
+        ->and((float) $metrics['previousExpenses'])->toBe(0.0)
+        ->and(array_map('floatval', $metrics['revenueChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 120.0])
+        ->and(array_map('floatval', $metrics['expensesChart']))->toBe([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 20.0]);
+});
