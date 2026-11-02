@@ -10,10 +10,12 @@ use App\Traits\IsTenantModel;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property int|null $team_id
@@ -72,8 +74,10 @@ class Estimate extends Model implements Documentable
         'declined_at' => 'datetime',
     ];
 
-    // Relationships
-    public function customer()
+    /**
+     * @return BelongsTo<Customer, $this>
+     */
+    public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
@@ -126,7 +130,10 @@ class Estimate extends Model implements Documentable
     public function calculateTax()
     {
         if (! $this->taxRate) {
-            return 0;
+            $this->tax_amount = $this->items()->sum('tax_amount');
+            $this->total_amount = $this->subtotal_amount + $this->tax_amount;
+
+            return (float) $this->tax_amount;
         }
 
         $baseAmount = $this->subtotal_amount;
@@ -152,7 +159,7 @@ class Estimate extends Model implements Documentable
 
     public function calculateTotals(): void
     {
-        $this->subtotal_amount = $this->items->sum('amount');
+        $this->subtotal_amount = $this->items()->sum('amount');
         $this->calculateTax();
         $this->save();
     }
@@ -192,43 +199,58 @@ class Estimate extends Model implements Documentable
         ]);
     }
 
-    public function convertToInvoice()
+    public function convertToInvoice(): Invoice
     {
-        if ($this->status !== 'accepted') {
-            throw new \Exception('Only accepted estimates can be converted to invoices.');
-        }
+        return DB::transaction(function (): Invoice {
+            $estimate = static::whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            if ($estimate->status !== 'accepted') {
+                throw new \DomainException('Only accepted estimates can be converted to invoices.');
+            }
+            if ($estimate->invoice_id) {
+                throw new \DomainException('This estimate has already been converted to an invoice.');
+            }
+            if ($estimate->salesOrder()->exists()) {
+                throw new \DomainException('This estimate already has a sales order.');
+            }
+            if ($estimate->team_id === null || $estimate->customer === null
+                || (int) $estimate->customer->team_id !== (int) $estimate->team_id) {
+                throw new \DomainException('Estimate and customer must belong to the same company.');
+            }
+            $items = $estimate->items()->get();
+            if ($items->isEmpty()) {
+                throw new \DomainException('An estimate requires line items before invoicing.');
+            }
 
-        if ($this->invoice_id) {
-            throw new \Exception('This estimate has already been converted to an invoice.');
-        }
+            $invoice = Invoice::create([
+                'customer_id' => $estimate->customer_id,
+                'team_id' => $estimate->team_id,
+                'invoice_date' => today(),
+                'due_date' => today()->addDays(30),
+                'total_amount' => $estimate->subtotal_amount,
+                'payment_status' => 'pending',
+                'notes' => "Converted from Estimate {$estimate->estimate_number}",
+            ]);
+            foreach ($items as $item) {
+                $invoice->items()->create([
+                    'description' => $item->description,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'amount' => $item->amount,
+                    'tax_amount' => $item->tax_amount,
+                    'tax_rate_id' => $estimate->tax_rate_id ?? $item->tax_rate_id,
+                ]);
+            }
+            $invoice->refresh();
+            $gross = bcadd((string) $invoice->total_amount, (string) $invoice->items()->sum('tax_amount'), 2);
+            if (bccomp((string) $invoice->total_amount, (string) $estimate->subtotal_amount, 2) !== 0
+                || bccomp($gross, (string) $estimate->total_amount, 2) !== 0) {
+                throw new \DomainException('Invoice totals must match the accepted estimate.');
+            }
+            $estimate->update(['invoice_id' => $invoice->getKey()]);
+            $this->refresh();
 
-        // The estimate may already be flowing through the sales-order path; block
-        // the legacy direct path too, or one estimate ends up with two invoices.
-        if ($this->salesOrder()->exists()) {
-            throw new \Exception('This estimate already has a sales order.');
-        }
-
-        // Create invoice
-        $invoice = Invoice::create([
-            'customer_id' => $this->customer_id,
-            'invoice_date' => now(),
-            'due_date' => now()->addDays(30),
-            'total_amount' => $this->subtotal_amount,
-            'tax_amount' => $this->tax_amount,
-            'tax_rate_id' => $this->tax_rate_id,
-            'payment_status' => 'pending',
-            'notes' => "Converted from Estimate {$this->estimate_number}",
-        ]);
-
-        // Copy items (Note: Invoice uses TimeEntry, not invoice items)
-        // This would need to be adjusted based on actual invoice structure
-        // For now, just link the estimate to the invoice
-
-        $this->update([
-            'invoice_id' => $invoice->invoice_id,
-        ]);
-
-        return $invoice;
+            return $invoice;
+        });
     }
 
     // Scopes

@@ -72,27 +72,27 @@ class Customer extends Authenticatable implements FilamentUser
 
     public function estimates()
     {
-        return $this->hasMany(Estimate::class, 'customer_id', 'customer_id');
+        return $this->hasMany(Estimate::class, 'customer_id');
     }
 
     public function creditMemos()
     {
-        return $this->hasMany(CreditMemo::class, 'customer_id', 'customer_id');
+        return $this->hasMany(CreditMemo::class, 'customer_id');
     }
 
     public function salesReceipts()
     {
-        return $this->hasMany(SalesReceipt::class, 'customer_id', 'customer_id');
+        return $this->hasMany(SalesReceipt::class, 'customer_id');
     }
 
     public function delayedCharges()
     {
-        return $this->hasMany(DelayedCharge::class, 'customer_id', 'customer_id');
+        return $this->hasMany(DelayedCharge::class, 'customer_id');
     }
 
     public function refundReceipts()
     {
-        return $this->hasMany(RefundReceipt::class, 'customer_id', 'customer_id');
+        return $this->hasMany(RefundReceipt::class, 'customer_id');
     }
 
     public function isOverCreditLimit(): bool
@@ -106,6 +106,11 @@ class Customer extends Authenticatable implements FilamentUser
             ->where('payment_status', 'pending')
             ->sum('total_amount');
         $this->save();
+    }
+
+    public function routeNotificationForMail(mixed $notification = null): ?string
+    {
+        return $this->customer_email;
     }
 
     public function routeNotificationForSms(mixed $notification = null): ?string

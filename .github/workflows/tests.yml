@@ -65,10 +65,23 @@ jobs:
       - name: Generate application key
         run: php artisan key:generate
 
-      # The threshold measures app/ alone — the host's five composition classes. Package
+      # The threshold measures all app/ host code. Package
       # coverage is each package's own gate, against its own phpunit.xml (§3.10).
       - name: Run tests with coverage
-        run: php artisan test --coverage --coverage-clover=coverage.xml --min=100
+        id: host_tests
+        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml
+
+      - name: Verify host coverage independently
+        if: always() && steps.host_tests.outcome != 'skipped'
+        run: php scripts/verify-host-coverage.php coverage.xml
+
+      - name: Preserve coverage evidence
+        if: always() && hashFiles('coverage.xml') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-coverage-${{ github.run_id }}
+          path: coverage.xml
+          retention-days: 14
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5

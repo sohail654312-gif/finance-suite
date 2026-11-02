@@ -22,12 +22,19 @@ class JournalEntry extends Model
 {
     protected $table = 'accounting_journal_entries';
 
-    protected $fillable = ['book_id', 'entry_number', 'entry_date', 'journal_type', 'status', 'description', 'source_type', 'source_id', 'reversal_of_id', 'posted_by', 'posted_at', 'metadata'];
+    protected $fillable = ['team_id', 'book_id', 'entry_number', 'entry_date', 'journal_type', 'status', 'description', 'source_type', 'source_id', 'reversal_of_id', 'posted_by', 'posted_at', 'metadata'];
 
     protected $casts = ['entry_date' => 'date', 'posted_at' => 'datetime', 'metadata' => 'array', 'status' => JournalStatus::class, 'journal_type' => JournalType::class];
 
     protected static function booted(): void
     {
+        static::creating(function (self $journal): void {
+            $book = Book::query()->find($journal->book_id);
+            if ($book === null) {
+                throw new \LogicException('A journal requires an existing book.');
+            }
+            $journal->setAttribute('team_id', $book->getAttribute('team_id'));
+        });
         static::creating(function (self $journal): void {
             if (blank($journal->entry_number)) {
                 $year = $journal->entry_date?->format('Y') ?? now()->format('Y');
@@ -37,6 +44,13 @@ class JournalEntry extends Model
             }
         });
         static::updating(function (self $journal): void {
+            if ($journal->isDirty('team_id')) {
+                throw new \LogicException('Journal ownership cannot be changed after creation.');
+            }
+            if ($journal->isDirty('book_id')) {
+                throw new \LogicException('Journal book ownership is immutable after creation.');
+            }
+
             $original = $journal->getRawOriginal('status');
             if ($original === JournalStatus::Draft->value && $journal->isDirty('status')) {
                 $allowed = ['status', 'posted_by', 'posted_at', 'updated_at'];
@@ -80,18 +94,29 @@ class JournalEntry extends Model
 
     public function isBalanced(): bool
     {
-        $totals = $this->lines()->selectRaw('COALESCE(SUM(debit),0) debits, COALESCE(SUM(credit),0) credits')->first();
+        $debits = '0.00';
+        $credits = '0.00';
+        $lines = $this->lines()->get();
+        foreach ($lines as $line) {
+            $debit = (string) $line->debit;
+            $credit = (string) $line->credit;
+            if (! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $debit) || ! preg_match('/^\d{1,18}(?:\.\d{1,2})?$/D', $credit) || (bccomp($debit, '0', 2) === 1) === (bccomp($credit, '0', 2) === 1)) {
+                return false;
+            }
+            $debits = bcadd($debits, $debit, 2);
+            $credits = bcadd($credits, $credit, 2);
+        }
 
-        return bccomp((string) $totals?->getAttribute('debits'), (string) $totals?->getAttribute('credits'), 2) === 0 && $this->lines()->count() >= 2;
+        return $lines->count() >= 2 && bccomp($debits, $credits, 2) === 0;
     }
 
     public function totalDebits(): string
     {
-        return (string) $this->lines()->sum('debit');
+        return $this->lines()->get()->reduce(fn (string $total, JournalLine $line): string => bcadd($total, (string) $line->debit, 2), '0.00');
     }
 
     public function totalCredits(): string
     {
-        return (string) $this->lines()->sum('credit');
+        return $this->lines()->get()->reduce(fn (string $total, JournalLine $line): string => bcadd($total, (string) $line->credit, 2), '0.00');
     }
 }

@@ -52,6 +52,16 @@ class BankConnection extends Model
         'last_synced_at' => 'datetime',
     ];
 
+    #[\Override]
+    protected $hidden = [
+        'credentials',
+        'plaid_access_token',
+        'revolut_access_token',
+        'revolut_refresh_token',
+        'wise_access_token',
+        'wise_refresh_token',
+    ];
+
     protected static function booted(): void
     {
         static::creating(function (BankConnection $bankConnection): void {

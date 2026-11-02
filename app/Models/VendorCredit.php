@@ -91,7 +91,9 @@ class VendorCredit extends Model
             $credit->amount_remaining = $credit->total_amount - $credit->amount_applied;
 
             // Update status based on remaining amount
-            if ($credit->amount_remaining <= 0) {
+            if ($credit->status === 'void') {
+                // A balance recalculation must preserve an explicit void decision.
+            } elseif ($credit->amount_remaining <= 0) {
                 $credit->status = 'applied';
             } elseif ($credit->amount_applied > 0) {
                 $credit->status = 'partial';

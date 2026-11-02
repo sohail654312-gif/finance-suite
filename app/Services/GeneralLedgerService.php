@@ -113,30 +113,38 @@ class GeneralLedgerService
         $previousEndDate = now()->subMonth()->endOfMonth();
 
         // Get current month revenue
-        $revenue = Transaction::whereHas('account', function ($query): void {
-            $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
-        })
+        $revenue = Transaction::where('team_id', $this->scopedTeamId())
+            ->where('status', 'posted')
+            ->whereHas('account', function ($query): void {
+                $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
         // Get previous month revenue for comparison
-        $previousRevenue = Transaction::whereHas('account', function ($query): void {
-            $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
-        })
+        $previousRevenue = Transaction::where('team_id', $this->scopedTeamId())
+            ->where('status', 'posted')
+            ->whereHas('account', function ($query): void {
+                $query->where('account_type', 'revenue')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
             ->sum('amount');
 
         // Get current month expenses
-        $expenses = Transaction::whereHas('account', function ($query): void {
-            $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
-        })
+        $expenses = Transaction::where('team_id', $this->scopedTeamId())
+            ->where('status', 'posted')
+            ->whereHas('account', function ($query): void {
+                $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$startDate, $endDate])
             ->sum('amount');
 
         // Get previous month expenses for comparison
-        $previousExpenses = Transaction::whereHas('account', function ($query): void {
-            $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
-        })
+        $previousExpenses = Transaction::where('team_id', $this->scopedTeamId())
+            ->where('status', 'posted')
+            ->whereHas('account', function ($query): void {
+                $query->where('account_type', 'expense')->where('team_id', $this->scopedTeamId());
+            })
             ->whereBetween('transaction_date', [$previousStartDate, $previousEndDate])
             ->sum('amount');
 
@@ -176,9 +184,11 @@ class GeneralLedgerService
         for ($i = 0; $i < $days; $i++) {
             $currentDate = (clone $startDate)->addDays($i);
 
-            $amount = Transaction::whereHas('account', function ($query) use ($accountType): void {
-                $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
-            })
+            $amount = Transaction::where('team_id', $this->scopedTeamId())
+                ->where('status', 'posted')
+                ->whereHas('account', function ($query) use ($accountType): void {
+                    $query->where('account_type', $accountType)->where('team_id', $this->scopedTeamId());
+                })
                 ->whereDate('transaction_date', $currentDate)
                 ->sum('amount');
 

@@ -203,6 +203,12 @@ class ModuleCommand extends Command
             return 1;
         }
 
+        if (! preg_match('/^[A-Z][a-zA-Z0-9]*$/D', $name)) {
+            $this->error('Module name must be a PascalCase PHP identifier.');
+
+            return 1;
+        }
+
         $modulePath = app_path("Modules/{$name}");
 
         if (File::exists($modulePath)) {

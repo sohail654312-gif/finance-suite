@@ -17,13 +17,14 @@ final class ReverseJournal
     public function handle(JournalEntry $journal, array $attributes = [], ?string $actor = null): JournalEntry
     {
         return DB::transaction(function () use ($journal, $attributes, $actor): JournalEntry {
-            $journal = JournalEntry::whereKey($journal->getKey())->firstOrFail();
+            $journal = JournalEntry::whereKey($journal->getKey())->lockForUpdate()->firstOrFail();
             $journal->load('lines');
             if ($journal->status !== JournalStatus::Posted) {
                 throw new InvalidJournal('Only posted journals may be reversed.');
             }
             $lines = $journal->lines->map(fn (JournalLine $line) => ['account_id' => $line->account_id, 'debit' => $line->credit, 'credit' => $line->debit, 'description' => $line->description, 'dimensions' => $line->dimensions])->all();
-            $reversal = app(CreateJournal::class)->handle($attributes + ['book_id' => $journal->book_id, 'entry_date' => now()->toDateString(), 'journal_type' => JournalType::Reversal->value, 'description' => 'Reversal of '.$journal->entry_number, 'reversal_of_id' => $journal->id], $lines);
+            $reversalAttributes = array_merge(['entry_date' => now()->toDateString(), 'description' => 'Reversal of '.$journal->entry_number], $attributes, ['book_id' => $journal->book_id, 'journal_type' => JournalType::Reversal->value, 'reversal_of_id' => $journal->id]);
+            $reversal = app(CreateJournal::class)->handle($reversalAttributes, $lines);
             $reversal = app(PostJournal::class)->handle($reversal, $actor);
             $journal->status = JournalStatus::Reversed;
             $journal->saveQuietly();

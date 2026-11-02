@@ -36,14 +36,34 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Extract image metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ghcr.io/liberusoftware/accounting-erp-laravel
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          revision="$(git rev-parse HEAD)"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            tag="pr-$PR_NUMBER"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            tag="${REF_NAME#v}"
+          else
+            tag="${REF_NAME//\//-}"
+          fi
+          {
+            echo 'tags<<FINANCE_IMAGE_TAGS'
+            echo "$image:$tag"
+            echo "$image:sha-${revision:0:12}"
+            if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
+              echo "$image:latest"
+            fi
+            echo 'FINANCE_IMAGE_TAGS'
+            echo 'labels<<FINANCE_IMAGE_LABELS'
+            echo "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+            echo "org.opencontainers.image.revision=$revision"
+            echo 'FINANCE_IMAGE_LABELS'
+          } >> "$GITHUB_OUTPUT"
       - name: Build and optionally publish image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:

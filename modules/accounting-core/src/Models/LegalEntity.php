@@ -11,9 +11,18 @@ class LegalEntity extends Model
 {
     protected $table = 'accounting_legal_entities';
 
-    protected $fillable = ['name', 'registration_number', 'currency_code', 'accounting_basis', 'is_active'];
+    protected $fillable = ['team_id', 'name', 'registration_number', 'currency_code', 'accounting_basis', 'is_active'];
 
     protected $casts = ['is_active' => 'bool'];
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $entity): void {
+            if ($entity->isDirty('team_id')) {
+                throw new \LogicException('Legal entity ownership cannot be changed after creation.');
+            }
+        });
+    }
 
     public function books(): HasMany
     {

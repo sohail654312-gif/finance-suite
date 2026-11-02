@@ -178,7 +178,7 @@ class SageSyncTest extends TestCase
     public function test_full_sync_reports_accounts_bills_and_payments(): void
     {
         $vendor = Vendor::factory()->create(['name' => 'Sage Vendor']);
-        $invoice = Invoice::factory()->create(['customer_id' => Customer::factory(), 'sage_id' => 'sage-invoice-1']);
+        $invoice = Invoice::factory()->create(['customer_id' => Customer::factory(), 'sage_id' => 'sage-invoice-1', 'team_id' => $this->user->current_team_id]);
         Payment::create(['invoice_id' => $invoice->id, 'payment_amount' => 40, 'payment_date' => '2026-09-02']);
 
         Http::fake([

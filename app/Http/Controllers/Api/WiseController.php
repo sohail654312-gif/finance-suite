@@ -10,6 +10,7 @@ use App\Models\BankConnection;
 use App\Models\BankFeedTransaction;
 use App\Models\Transaction;
 use App\Services\WiseService;
+use DateTimeImmutable;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
+use LogicException;
 
 class WiseController extends Controller
 {
@@ -40,12 +43,12 @@ class WiseController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to generate Wise authorization URL', [
                 'user_id' => $request->user()->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate authorization URL: '.$e->getMessage(),
+                'message' => 'Failed to generate authorization URL',
             ], 500);
         }
     }
@@ -55,6 +58,7 @@ class WiseController extends Controller
      */
     public function handleCallback(Request $request): JsonResponse
     {
+        $request->validate(['code' => ['nullable', 'string'], 'state' => ['nullable', 'string']]);
         $code = $request->input('code');
         $state = $request->input('state');
 
@@ -113,12 +117,12 @@ class WiseController extends Controller
             DB::rollBack();
             Log::error('Failed to store Wise connection', [
                 'user_id' => $request->user()?->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to connect Wise account: '.$e->getMessage(),
+                'message' => 'Failed to connect Wise account',
             ], 500);
         }
     }
@@ -151,7 +155,7 @@ class WiseController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to list Wise connections', [
                 'user_id' => $request->user()->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
@@ -167,7 +171,7 @@ class WiseController extends Controller
     public function getAccounts(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'wise' || $connection->team_id !== ($request->user()->current_team_id ?? -1)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -233,12 +237,12 @@ class WiseController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to get Wise accounts', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to get accounts: '.$e->getMessage(),
+                'message' => 'Failed to get accounts',
             ], 500);
         }
     }
@@ -249,7 +253,7 @@ class WiseController extends Controller
     public function syncTransactions(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'wise' || $connection->team_id !== ($request->user()->current_team_id ?? -1)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -304,12 +308,12 @@ class WiseController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to sync Wise transactions', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to sync transactions: '.$e->getMessage(),
+                'message' => 'Failed to sync transactions',
             ], 500);
         }
     }
@@ -320,7 +324,7 @@ class WiseController extends Controller
     public function removeConnection(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'wise' || $connection->team_id !== ($request->user()->current_team_id ?? -1)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -336,12 +340,12 @@ class WiseController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to remove Wise connection', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to remove connection: '.$e->getMessage(),
+                'message' => 'Failed to remove connection',
             ], 500);
         }
     }
@@ -351,24 +355,43 @@ class WiseController extends Controller
      */
     protected function processWiseTransfer(array $wiseTransfer, BankConnection $connection): void
     {
-        $transferId = $wiseTransfer['id'];
-        $amount = $wiseTransfer['sourceValue'] ?? 0;
-        $createdAt = $wiseTransfer['created'] ?? null;
+        $transferId = (string) ($wiseTransfer['id'] ?? '');
+        $amount = (string) ($wiseTransfer['sourceValue'] ?? '');
+        $createdAt = (string) ($wiseTransfer['created'] ?? '');
+        $date = substr($createdAt, 0, 10);
+        $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        if ($transferId === '' || strlen($transferId) > 255
+            || ! preg_match('/^\d{1,10}(?:\.\d{1,2})?$/D', $amount)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}(?:[ T](?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/D', $createdAt)
+            || $parsedDate === false || $parsedDate->format('Y-m-d') !== $date) {
+            throw new InvalidArgumentException('Wise transfers require a valid identity, date and decimal amount.');
+        }
+        new DateTimeImmutable($createdAt);
 
-        $transaction = Transaction::updateOrCreate(
-            [
-                'external_id' => (string) $transferId,
-                'bank_connection_id' => $connection->id,
-            ],
-            [
-                'transaction_date' => $createdAt ? date('Y-m-d', strtotime((string) $createdAt)) : now()->toDateString(),
-                'amount' => abs((float) $amount),
-                'type' => 'debit',
-                'description' => $wiseTransfer['reference'] ?? 'Wise transfer',
-                'category' => 'transfer',
-                'status' => $this->mapWiseStatus($wiseTransfer['status'] ?? 'completed'),
-            ]
-        );
+        $transaction = Transaction::where('external_id', $transferId)->lockForUpdate()->first();
+        if ($transaction !== null && ((int) $transaction->team_id !== (int) $connection->team_id
+            || (int) $transaction->bank_connection_id !== (int) $connection->id)) {
+            throw new LogicException('Wise transfer identity belongs to another company or connection.');
+        }
+        $values = [
+            'team_id' => $connection->team_id,
+            'bank_connection_id' => $connection->id,
+            'transaction_date' => $date,
+            'amount' => bcadd($amount, '0', 2),
+            'type' => 'debit',
+            'description' => $wiseTransfer['details']['reference'] ?? $wiseTransfer['reference'] ?? 'Wise transfer',
+            'category' => 'transfer',
+            'status' => $this->mapWiseStatus($wiseTransfer['status'] ?? ''),
+        ];
+        if ($transaction === null) {
+            $transaction = Transaction::create($values + ['external_id' => $transferId, 'reconciled' => false]);
+        } else {
+            $transaction->fill($values);
+            if ($transaction->reconciled && $transaction->isDirty()) {
+                throw new LogicException('Reconciled Wise transfers require review before correction.');
+            }
+            $transaction->save();
+        }
 
         BankFeedTransaction::updateOrCreate(
             [
@@ -387,11 +410,11 @@ class WiseController extends Controller
     protected function mapWiseStatus(string $status): string
     {
         return match ($status) {
-            'incoming_payment_waiting', 'processing' => 'pending',
-            'outgoing_payment_sent', 'funds_converted' => 'posted',
+            'incoming_payment_waiting', 'incoming_payment_initiated', 'processing', 'funds_converted' => 'pending',
+            'outgoing_payment_sent' => 'posted',
             'cancelled' => 'cancelled',
-            'bounced_back', 'funds_refunded' => 'failed',
-            default => 'posted',
+            'bounced_back', 'funds_refunded', 'charged_back' => 'failed',
+            default => 'pending',
         };
     }
 

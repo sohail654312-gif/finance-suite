@@ -45,8 +45,7 @@ class ResetUserPassword implements ResetsUserPasswords
         } catch (Exception $e) {
             Log::error('Password reset failed', [
                 'user_id' => $user->id,
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'exception_class' => $e::class,
             ]);
             throw new Exception('Failed to reset password. Please try again later.', $e->getCode(), $e);
         }

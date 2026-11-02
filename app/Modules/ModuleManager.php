@@ -393,7 +393,8 @@ class ModuleManager
             $record->config = $module->getConfig();
             $record->save();
         } catch (\Throwable $e) {
-            Log::warning("Failed to persist state for module '{$module->getName()}': ".$e->getMessage());
+            Log::warning('Failed to persist module state.', ['module' => $module->getName(), 'exception_type' => $e::class]);
+            throw new RuntimeException('Module state could not be persisted.');
         }
     }
 

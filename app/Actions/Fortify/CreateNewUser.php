@@ -6,6 +6,7 @@ namespace App\Actions\Fortify;
 
 use App\Models\Team;
 use App\Models\User;
+use App\Services\TeamManagementService;
 use Exception;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,7 @@ class CreateNewUser implements CreatesNewUsers
      */
     public function create(array $input): User
     {
+        $previousTeamId = getPermissionsTeamId();
         try {
             Validator::make($input, [
                 'name' => ['required', 'string', 'max:255'],
@@ -55,15 +57,6 @@ class CreateNewUser implements CreatesNewUsers
                 setPermissionsTeamId($team->id);
                 $user->assignRole($input['role']);
             }));
-            // $user = DB::transaction(function () use ($input) {
-            //     return tap(,
-            //     , function (User $user) use ($input) {
-            //         $team = $this->assignOrCreateTeam($user);
-            //         $user->switchTeam($team);
-            //         setPermissionsTeamId($team->id);
-            //         $user->assignRole($input['role']);
-            //     });
-            // });
 
             Log::info('User created successfully', [
                 'user_id' => $user->id,
@@ -75,30 +68,26 @@ class CreateNewUser implements CreatesNewUsers
         } catch (ValidationException $e) {
             Log::error('User creation validation failed', [
                 'errors' => $e->errors(),
-                'input' => array_diff_key($input, array_flip(['password'])),
+                'fields' => array_keys($e->errors()),
             ]);
             throw $e;
         } catch (QueryException $e) {
             Log::error('Database error during user creation', [
-                'message' => $e->getMessage(),
                 'code' => $e->getCode(),
-                'sql' => $e->getSql(),
-                'bindings' => $e->getBindings(),
             ]);
-            throw new Exception($this->getDatabaseErrorMessage($e), $e->getCode(), $e);
+            throw new Exception($this->getDatabaseErrorMessage($e), (int) $e->getCode(), $e);
         } catch (RoleDoesNotExist $e) {
             Log::error('Invalid role specified during user creation', [
                 'role' => $input['role'] ?? 'not provided',
-                'message' => $e->getMessage(),
             ]);
-            throw new Exception('Invalid role specified. Please choose a valid role.', $e->getCode(), $e);
+            throw new Exception('Invalid role specified. Please choose a valid role.', (int) $e->getCode(), $e);
         } catch (Exception $e) {
             Log::error('Unexpected error during user creation', [
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
                 'exception_class' => $e::class,
             ]);
-            throw new Exception('An unexpected error occurred. Please try again later.', $e->getCode(), $e);
+            throw new Exception('An unexpected error occurred. Please try again later.', (int) $e->getCode(), $e);
+        } finally {
+            setPermissionsTeamId($previousTeamId);
         }
     }
 
@@ -119,16 +108,12 @@ class CreateNewUser implements CreatesNewUsers
     }
 
     /**
-     * Assign the user to the first team or create a personal team.
+     * Provision only the registering user's own company boundary.
      *
      * @throws Exception
      */
     protected function assignOrCreateTeam(User $user): Team
     {
-        $team = Team::first();
-
-        $team->users()->attach($user);
-
-        return $team;
+        return app(TeamManagementService::class)->createPersonalTeamForUser($user);
     }
 }

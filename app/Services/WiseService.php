@@ -76,10 +76,10 @@ class WiseService
                 return $response->json();
             }
 
-            throw new Exception('Failed to exchange authorization code: '.$response->body());
+            throw new Exception('Failed to exchange authorization code');
         } catch (Exception $e) {
             Log::error('Wise authorization code exchange failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -104,10 +104,10 @@ class WiseService
                 return $response->json();
             }
 
-            throw new Exception('Failed to refresh access token: '.$response->body());
+            throw new Exception('Failed to refresh access token');
         } catch (Exception $e) {
             Log::error('Wise token refresh failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -153,11 +153,11 @@ class WiseService
                 return $response->json();
             }
 
-            throw new Exception('Failed to get profiles: '.$response->body());
+            throw new Exception('Failed to get profiles');
         } catch (Exception $e) {
             Log::error('Wise get profiles failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -185,12 +185,12 @@ class WiseService
                 return $response->json();
             }
 
-            throw new Exception('Failed to get balances: '.$response->body());
+            throw new Exception('Failed to get balances');
         } catch (Exception $e) {
             Log::error('Wise get balances failed', [
                 'connection_id' => $connection->id,
                 'profile_id' => $profileId,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -246,12 +246,12 @@ class WiseService
                 return $transfers;
             }
 
-            throw new Exception('Failed to get transfers: '.$response->body());
+            throw new Exception('Failed to get transfers');
         } catch (Exception $e) {
             Log::error('Wise get transfers failed', [
                 'connection_id' => $connection->id,
                 'profile_id' => $profileId,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }

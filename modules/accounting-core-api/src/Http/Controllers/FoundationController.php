@@ -15,6 +15,8 @@ use Liberu\Accounting\Core\Actions\SaveFiscalCalendar;
 use Liberu\Accounting\Core\Actions\SaveNumberingSequence;
 use Liberu\Accounting\Core\Exceptions\InvalidFiscalCalendar;
 use Liberu\Accounting\Core\Models\Book;
+use Liberu\Accounting\Core\Models\LegalEntity;
+use Liberu\Accounting\Core\Support\TenantOwnership;
 use Liberu\Accounting\CoreApi\Http\Resources\BookResource;
 use Liberu\Accounting\CoreApi\Http\Resources\FiscalCalendarResource;
 use Liberu\Accounting\CoreApi\Http\Resources\NumberingSequenceResource;
@@ -25,7 +27,12 @@ final class FoundationController extends Controller
     {
         Gate::authorize('viewAny', Book::class);
 
-        return BookResource::collection(Book::query()->paginate(min($request->integer('per_page', 25), 100)));
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+
+        return BookResource::collection(
+            Book::query()->where('team_id', $teamId)->paginate(min($request->integer('per_page', 25), 100))
+        );
     }
 
     public function book(string $book): BookResource
@@ -40,6 +47,13 @@ final class FoundationController extends Controller
     {
         Gate::authorize('create', Book::class);
         $data = $request->validate(['legal_entity_id' => 'required|integer|exists:accounting_legal_entities,id', 'name' => 'required|string|max:255', 'code' => 'required|string|max:50', 'accounting_basis' => 'required|in:accrual,cash', 'is_active' => 'sometimes|boolean']);
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+        $entity = LegalEntity::query()
+            ->whereKey($data['legal_entity_id'])
+            ->where('team_id', $teamId)
+            ->firstOrFail();
+        $data['legal_entity_id'] = $entity->getKey();
 
         return new BookResource($save->handle(null, $data));
     }

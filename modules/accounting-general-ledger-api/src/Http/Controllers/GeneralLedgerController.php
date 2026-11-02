@@ -10,6 +10,8 @@ use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Liberu\Accounting\Core\Models\Book;
+use Liberu\Accounting\Core\Support\TenantOwnership;
 use Liberu\Accounting\GeneralLedger\Actions\CreateJournal;
 use Liberu\Accounting\GeneralLedger\Actions\CreateTypedJournal;
 use Liberu\Accounting\GeneralLedger\Actions\GenerateRecurringJournal;
@@ -29,7 +31,10 @@ final class GeneralLedgerController extends Controller
     {
         Gate::authorize('viewAny', JournalEntry::class);
 
-        return JournalResource::collection(JournalEntry::with('lines')->where('book_id', $request->integer('book_id'))->latest()->paginate(min($request->integer('per_page', 25), 100)));
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+
+        return JournalResource::collection(JournalEntry::with('lines')->where('team_id', $teamId)->where('book_id', $request->integer('book_id'))->latest()->paginate(min($request->integer('per_page', 25), 100)));
     }
 
     public function show(string $journal): JournalResource
@@ -44,6 +49,7 @@ final class GeneralLedgerController extends Controller
     {
         Gate::authorize('create', JournalEntry::class);
         $data = $request->validate(['book_id' => ['required', 'integer'], 'entry_number' => ['nullable', 'string', 'max:80'], 'entry_date' => ['required', 'date'], 'journal_type' => ['nullable', 'in:general,recurring,correction,allocation,accrual,prepayment'], 'description' => ['nullable', 'string', 'max:255'], 'lines' => ['required', 'array', 'min:2'], 'lines.*.account_id' => ['required', 'integer'], 'lines.*.debit' => ['nullable', 'numeric', 'min:0'], 'lines.*.credit' => ['nullable', 'numeric', 'min:0'], 'lines.*.description' => ['nullable', 'string', 'max:255']]);
+        $data['book_id'] = $this->ownedBook($request, (int) $data['book_id'])->getKey();
         try {
             return (new JournalResource($create->handle(collect($data)->except('lines')->all(), $data['lines'])))->response()->setStatusCode(201);
         } catch (InvalidJournal $e) {
@@ -55,6 +61,7 @@ final class GeneralLedgerController extends Controller
     {
         Gate::authorize('create', JournalEntry::class);
         $data = $request->validate(['book_id' => ['required', 'integer'], 'entry_number' => ['nullable', 'string', 'max:80'], 'entry_date' => ['required', 'date'], 'description' => ['nullable', 'string', 'max:255'], 'source_type' => ['nullable', 'string', 'max:191'], 'source_id' => ['nullable', 'string', 'max:191'], 'lines' => ['required', 'array', 'min:2'], 'lines.*.account_id' => ['required', 'integer'], 'lines.*.debit' => ['nullable', 'numeric', 'min:0'], 'lines.*.credit' => ['nullable', 'numeric', 'min:0'], 'lines.*.description' => ['nullable', 'string', 'max:255']]);
+        $data['book_id'] = $this->ownedBook($request, (int) $data['book_id'])->getKey();
         $map = ['corrections' => JournalType::Correction, 'allocations' => JournalType::Allocation, 'accruals' => JournalType::Accrual, 'prepayments' => JournalType::Prepayment];
         try {
             return new JournalResource($create->handle($map[$type], collect($data)->except('lines')->all(), $data['lines']));
@@ -93,14 +100,16 @@ final class GeneralLedgerController extends Controller
     {
         $data = $request->validate(['book_id' => ['required', 'integer'], 'through' => ['nullable', 'date']]);
         Gate::authorize('viewAny', JournalEntry::class);
+        $book = $this->ownedBook($request, (int) $data['book_id']);
 
-        return response()->json(['data' => $balances->handle((int) $data['book_id'], $data['through'] ?? null)]);
+        return response()->json(['data' => $balances->handle((int) $book->getKey(), $data['through'] ?? null)]);
     }
 
     public function saveRecurring(Request $request, SaveRecurringJournal $save)
     {
         Gate::authorize('create', JournalEntry::class);
         $data = $request->validate(['book_id' => ['required', 'integer'], 'name' => ['required', 'string', 'max:160'], 'frequency' => ['required', 'in:daily,weekly,monthly,quarterly,yearly'], 'next_run_on' => ['required', 'date'], 'end_on' => ['nullable', 'date', 'after_or_equal:next_run_on'], 'description' => ['nullable', 'string'], 'lines' => ['required', 'array', 'min:2'], 'lines.*.account_id' => ['required', 'integer'], 'lines.*.debit' => ['nullable', 'numeric', 'min:0'], 'lines.*.credit' => ['nullable', 'numeric', 'min:0']]);
+        $data['book_id'] = $this->ownedBook($request, (int) $data['book_id'])->getKey();
         try {
             return response()->json(['data' => $save->handle($data)], 201);
         } catch (InvalidJournal $e) {
@@ -112,6 +121,7 @@ final class GeneralLedgerController extends Controller
     {
         $template = RecurringJournal::findOrFail($recurring);
         Gate::authorize('create', JournalEntry::class);
+        $this->ownedBook($request, (int) $template->book_id);
         try {
             $actor = $request->user()?->getAuthIdentifier();
 
@@ -119,6 +129,14 @@ final class GeneralLedgerController extends Controller
         } catch (InvalidJournal $e) {
             throw ValidationException::withMessages(['recurring' => $e->getMessage()]);
         }
+    }
+
+    private function ownedBook(Request $request, int $bookId): Book
+    {
+        $teamId = TenantOwnership::currentTeamId($request->user());
+        abort_if($teamId === null, 403);
+
+        return Book::query()->whereKey($bookId)->where('team_id', $teamId)->firstOrFail();
     }
 
     public function destroy(string $journal): Response

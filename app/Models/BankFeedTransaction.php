@@ -27,7 +27,7 @@ class BankFeedTransaction extends Model
 
     public function transaction()
     {
-        return $this->belongsTo(Transaction::class);
+        return $this->belongsTo(Transaction::class, 'transaction_id', 'transaction_id');
     }
 
     public function bankConnection()
