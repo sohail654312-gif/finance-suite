@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\BankConnection;
+use App\Models\Currency;
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -158,7 +159,9 @@ class PlaidControllerTest extends TestCase
 
     public function test_sync_transactions_syncs_from_plaid(): void
     {
+        Currency::firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'symbol' => '$', 'is_default' => true]);
         $connection = BankConnection::factory()->create([
+            'user_id' => $this->user->id,
             'team_id' => $this->user->current_team_id,
             'plaid_access_token' => 'access-test-token',
             'status' => 'active',
@@ -169,6 +172,7 @@ class PlaidControllerTest extends TestCase
                 'added' => [
                     [
                         'transaction_id' => 'tx_123',
+                        'iso_currency_code' => 'USD',
                         'date' => '2026-02-14',
                         'name' => 'Test Transaction',
                         'amount' => 25.50,

@@ -8,10 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankConnection;
 use App\Services\PlaidService;
-use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use LogicException;
+use Throwable;
 
 class PlaidWebhookController extends Controller
 {
@@ -38,15 +40,21 @@ class PlaidWebhookController extends Controller
                 ], 401);
             }
 
-            $payload = $request->all();
+            $payload = $request->validate([
+                'webhook_type' => ['required', 'string', 'max:80', 'regex:/^[A-Z_]+$/D'],
+                'webhook_code' => ['required', 'string', 'max:100', 'regex:/^[A-Z_]+$/D'],
+                'item_id' => ['required_if:webhook_type,TRANSACTIONS,ITEM', 'nullable', 'string', 'max:255'],
+                'error' => ['nullable', 'array'],
+                'error.error_code' => ['sometimes', 'nullable', 'string', 'max:100'],
+                'removed_transactions' => ['sometimes', 'array', 'list', 'max:1000'],
+                'removed_transactions.*' => ['string', 'max:255'],
+            ]);
             $webhookType = $payload['webhook_type'] ?? null;
             $webhookCode = $payload['webhook_code'] ?? null;
-            $itemId = $payload['item_id'] ?? null;
 
             Log::info('Plaid webhook received', [
                 'type' => $webhookType,
                 'code' => $webhookCode,
-                'item_id' => $itemId,
             ]);
 
             // Route to appropriate handler based on webhook type
@@ -62,19 +70,35 @@ class PlaidWebhookController extends Controller
                 'success' => true,
                 'message' => 'Webhook processed',
             ]);
-        } catch (Exception $e) {
+        } catch (ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Invalid webhook payload'], 422);
+        } catch (Throwable $e) {
             Log::error('Plaid webhook processing failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'exception_class' => $e::class,
             ]);
 
-            // Return 200 to prevent Plaid from retrying
-            // Log the error for manual investigation
+            // Failed verified deliveries remain retryable; only successful
+            // dispatch or processing is acknowledged.
             return response()->json([
                 'success' => false,
                 'message' => 'Webhook processing failed',
-            ], 200);
+            ], 500);
         }
+    }
+
+    private function itemConnection(string $itemId): ?BankConnection
+    {
+        $connections = BankConnection::query()->where('plaid_item_id', $itemId)->get();
+        if ($connections->count() > 1) {
+            throw new LogicException('The Plaid item identity is ambiguous and requires review.');
+        }
+        $connection = $connections->first();
+        if ($connection === null || in_array($connection->bank_id, ['revolut', 'wise'], true)
+            || ! is_string($connection->plaid_access_token) || $connection->plaid_access_token === '') {
+            return null;
+        }
+
+        return $connection;
     }
 
     /**
@@ -85,13 +109,19 @@ class PlaidWebhookController extends Controller
         $webhookCode = $payload['webhook_code'];
         $itemId = $payload['item_id'];
 
-        $connection = BankConnection::where('plaid_item_id', $itemId)->first();
+        $connection = $this->itemConnection($itemId);
 
         if (! $connection) {
             Log::warning('Bank connection not found for webhook', [
                 'item_id' => $itemId,
                 'webhook_code' => $webhookCode,
             ]);
+
+            return;
+        }
+
+        if ($connection->status !== 'active') {
+            Log::info('Ignoring transaction notification for inactive connection', ['connection_id' => $connection->id]);
 
             return;
         }
@@ -125,7 +155,7 @@ class PlaidWebhookController extends Controller
         $itemId = $payload['item_id'];
         $error = $payload['error'] ?? null;
 
-        $connection = BankConnection::where('plaid_item_id', $itemId)->first();
+        $connection = $this->itemConnection($itemId);
 
         if (! $connection) {
             Log::warning('Bank connection not found for item webhook', [
@@ -164,7 +194,6 @@ class PlaidWebhookController extends Controller
 
         Log::info('Auth webhook received', [
             'code' => $webhookCode,
-            'payload' => $payload,
         ]);
     }
 
@@ -177,7 +206,6 @@ class PlaidWebhookController extends Controller
 
         Log::info('Assets webhook received', [
             'code' => $webhookCode,
-            'payload' => $payload,
         ]);
     }
 
@@ -251,16 +279,14 @@ class PlaidWebhookController extends Controller
         }
 
         $errorCode = $error['error_code'] ?? 'UNKNOWN';
-        $errorMessage = $error['error_message'] ?? 'Unknown error';
 
         Log::warning('Item error received', [
             'connection_id' => $connection->id,
             'error_code' => $errorCode,
-            'error_message' => $errorMessage,
         ]);
 
         // Update connection status based on error
-        if (in_array($errorCode, ['ITEM_LOGIN_REQUIRED', 'INVALID_CREDENTIALS'])) {
+        if (in_array($errorCode, ['ITEM_LOGIN_REQUIRED', 'INVALID_CREDENTIALS'], true)) {
             $connection->update([
                 'status' => 'requires_reauth',
             ]);

@@ -5,17 +5,20 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankAccountBalance;
 use App\Models\BankConnection;
 use App\Models\BankFeedTransaction;
 use App\Models\Transaction;
 use App\Services\PlaidService;
 use Exception;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class PlaidController extends Controller
 {
@@ -178,77 +181,31 @@ class PlaidController extends Controller
     public function syncTransactions(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            // Verify team ownership (connections are team-shared)
             if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized',
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
             }
-
-            // Check connection status
             if ($connection->status !== 'active') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Connection is not active',
-                ], 400);
+                return response()->json(['success' => false, 'message' => 'Connection is not active'], 400);
             }
 
-            DB::beginTransaction();
-            try {
-                // Sync transactions from Plaid
-                $transactionData = $this->plaidService->syncTransactions($connection);
-
-                $added = $transactionData['added'] ?? [];
-                $modified = $transactionData['modified'] ?? [];
-                $removed = $transactionData['removed'] ?? [];
-
-                $processedCount = 0;
-
-                // Process added transactions
-                foreach ($added as $plaidTransaction) {
-                    $this->processPlaidTransaction($plaidTransaction, $connection);
-                    $processedCount++;
-                }
-
-                // Process modified transactions
-                foreach ($modified as $plaidTransaction) {
-                    $this->processPlaidTransaction($plaidTransaction, $connection, true);
-                    $processedCount++;
-                }
-
-                // Process removed transactions (mark as deleted)
-                foreach ($removed as $removedTransaction) {
-                    $this->removeTransaction($removedTransaction['transaction_id'], $connection);
-                }
-
-                DB::commit();
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Transactions synced successfully',
-                    'summary' => [
-                        'added' => count($added),
-                        'modified' => count($modified),
-                        'removed' => count($removed),
-                        'total_processed' => $processedCount,
-                    ],
-                    'last_synced_at' => $connection->fresh()->last_synced_at,
-                ]);
-            } catch (Exception $e) {
-                DB::rollBack();
-                throw $e;
-            }
-        } catch (Exception $e) {
-            Log::error('Failed to sync transactions', [
-                'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
-            ]);
+            $job = new SyncPlaidTransactionsJob((int) $connection->getKey());
+            $job->handle($this->plaidService);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Failed to sync transactions: '.$e->getMessage(),
-            ], 500);
+                'success' => true,
+                'message' => 'Transactions synced successfully',
+                'summary' => $job->summary,
+                'last_synced_at' => $connection->fresh()->last_synced_at,
+            ]);
+        } catch (AuthorizationException $error) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        } catch (Throwable $error) {
+            Log::error('Failed to sync transactions', [
+                'connection_id' => $connection->id,
+                'exception_type' => $error::class,
+            ]);
+
+            return response()->json(['success' => false, 'message' => 'Failed to sync transactions.'], 500);
         }
     }
 

@@ -60,7 +60,7 @@ class SendApprovedOutboundPayment
             $payment->update(['status' => OutboundPayment::STATUS_FAILED]);
             Log::error('Outbound payment send failed', [
                 'payment_id' => $payment->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
         }
     }

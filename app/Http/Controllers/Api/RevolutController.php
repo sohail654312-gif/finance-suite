@@ -8,9 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Models\BankAccountBalance;
 use App\Models\BankConnection;
 use App\Models\BankFeedTransaction;
+use App\Models\Currency;
 use App\Models\OutboundPayment;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Services\RevolutService;
+use DateTimeImmutable;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +21,9 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Liberu\Accounting\Core\Support\TenantOwnership;
+use LogicException;
 
 class RevolutController extends Controller
 {
@@ -28,6 +34,7 @@ class RevolutController extends Controller
      */
     public function redirectToRevolut(Request $request): JsonResponse
     {
+        abort_if($this->ownedTeamId($request) === null, 403);
         try {
             $state = Str::random(40);
             Cache::put($this->stateCacheKey($request), $state, now()->addMinutes(10));
@@ -41,12 +48,12 @@ class RevolutController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to generate Revolut authorization URL', [
                 'user_id' => $request->user()->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate authorization URL: '.$e->getMessage(),
+                'message' => 'Failed to generate authorization URL',
             ], 500);
         }
     }
@@ -56,6 +63,9 @@ class RevolutController extends Controller
      */
     public function handleCallback(Request $request): JsonResponse
     {
+        $teamId = $this->ownedTeamId($request);
+        abort_if($teamId === null, 403);
+        $request->validate(['code' => ['nullable', 'string', 'max:4096'], 'state' => ['nullable', 'string', 'max:200']]);
         $code = $request->input('code');
         $state = $request->input('state');
 
@@ -84,10 +94,15 @@ class RevolutController extends Controller
         try {
             $user = $request->user();
             $tokenData = $this->revolutService->exchangeAuthorizationCode($code);
+            if (! is_string($tokenData['access_token'] ?? null) || $tokenData['access_token'] === ''
+                || (isset($tokenData['refresh_token']) && ! is_string($tokenData['refresh_token']))
+                || (isset($tokenData['expires_in']) && (filter_var($tokenData['expires_in'], FILTER_VALIDATE_INT) === false || (int) $tokenData['expires_in'] < 1))) {
+                throw new InvalidArgumentException('The provider did not return valid connection credentials.');
+            }
 
             $connection = BankConnection::create([
                 'user_id' => $user->id,
-                'team_id' => $user->current_team_id,
+                'team_id' => $teamId,
                 'bank_id' => 'revolut',
                 'institution_name' => 'Revolut Business',
                 'revolut_access_token' => $tokenData['access_token'],
@@ -114,12 +129,12 @@ class RevolutController extends Controller
             DB::rollBack();
             Log::error('Failed to store Revolut connection', [
                 'user_id' => $request->user()?->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to connect Revolut account: '.$e->getMessage(),
+                'message' => 'Failed to connect Revolut account',
             ], 500);
         }
     }
@@ -129,10 +144,12 @@ class RevolutController extends Controller
      */
     public function listConnections(Request $request): JsonResponse
     {
+        $teamId = $this->ownedTeamId($request);
+        abort_if($teamId === null, 403);
         try {
             $user = $request->user();
 
-            $connections = BankConnection::where('team_id', $user->current_team_id ?? -1)
+            $connections = BankConnection::where('team_id', $teamId)
                 ->where('bank_id', 'revolut')
                 ->select([
                     'id',
@@ -152,7 +169,7 @@ class RevolutController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to list Revolut connections', [
                 'user_id' => $request->user()->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
@@ -168,7 +185,7 @@ class RevolutController extends Controller
     public function getAccounts(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'revolut' || $this->ownedTeamId($request) === null || $connection->team_id !== $this->ownedTeamId($request)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -185,9 +202,19 @@ class RevolutController extends Controller
             DB::beginTransaction();
             try {
                 $accounts = $this->revolutService->getAccounts($connection);
+                if (! array_is_list($accounts)) {
+                    throw new InvalidArgumentException('The provider account response must be a list.');
+                }
                 $syncedAccounts = [];
 
                 foreach ($accounts as $account) {
+                    if (! is_array($account) || ! is_string($account['id'] ?? null) || $account['id'] === ''
+                        || ! is_string($account['name'] ?? null) || $account['name'] === ''
+                        || ! is_string($account['currency'] ?? null) || ! preg_match('/^[A-Z]{3}$/D', $account['currency'])
+                        || ! is_scalar($account['balance'] ?? null)
+                        || ! preg_match('/^-?\d{1,10}(?:\.\d{1,2})?$/D', (string) $account['balance'])) {
+                        throw new InvalidArgumentException('The provider account requires a valid identity, currency and exact balance.');
+                    }
                     $balance = BankAccountBalance::updateOrCreate(
                         [
                             'bank_connection_id' => $connection->id,
@@ -203,6 +230,7 @@ class RevolutController extends Controller
                             'last_updated_at' => now(),
                         ]
                     );
+                    $balance->forceFill(['team_id' => $connection->team_id])->save();
 
                     $syncedAccounts[] = [
                         'id' => $balance->id,
@@ -228,12 +256,12 @@ class RevolutController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to get Revolut accounts', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to get accounts: '.$e->getMessage(),
+                'message' => 'Failed to get accounts',
             ], 500);
         }
     }
@@ -244,7 +272,7 @@ class RevolutController extends Controller
     public function syncTransactions(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'revolut' || $this->ownedTeamId($request) === null || $connection->team_id !== $this->ownedTeamId($request)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -266,9 +294,15 @@ class RevolutController extends Controller
             DB::beginTransaction();
             try {
                 $transactions = $this->revolutService->getTransactions($connection, $from);
+                if (! array_is_list($transactions)) {
+                    throw new InvalidArgumentException('The provider transaction response must be a list.');
+                }
 
                 $processedCount = 0;
                 foreach ($transactions as $revolutTransaction) {
+                    if (! is_array($revolutTransaction)) {
+                        throw new InvalidArgumentException('Every provider transaction must be an object.');
+                    }
                     $this->processRevolutTransaction($revolutTransaction, $connection);
                     $processedCount++;
                 }
@@ -290,12 +324,12 @@ class RevolutController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to sync Revolut transactions', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to sync transactions: '.$e->getMessage(),
+                'message' => 'Failed to sync transactions',
             ], 500);
         }
     }
@@ -306,7 +340,7 @@ class RevolutController extends Controller
     public function removeConnection(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'revolut' || $this->ownedTeamId($request) === null || $connection->team_id !== $this->ownedTeamId($request)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -322,12 +356,12 @@ class RevolutController extends Controller
         } catch (Exception $e) {
             Log::error('Failed to remove Revolut connection', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to remove connection: '.$e->getMessage(),
+                'message' => 'Failed to remove connection',
             ], 500);
         }
     }
@@ -346,15 +380,15 @@ class RevolutController extends Controller
             'receiver' => 'required|array',
             'receiver.counterparty_id' => 'required_without:receiver.account_id|string|nullable',
             'receiver.account_id' => 'required_without:receiver.counterparty_id|string|nullable',
-            'amount' => 'required|numeric|min:0.01',
-            'currency' => 'required|string|size:3',
+            'amount' => 'required|numeric|min:0.01|decimal:0,2',
+            'currency' => 'required|string|alpha|size:3',
             'reference' => 'required|string|max:255',
         ]);
 
         $guardKey = 'revolut_pay:'.$connection->id.':'.$request->input('idempotency_key');
 
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'revolut' || $this->ownedTeamId($request) === null || $connection->team_id !== $this->ownedTeamId($request)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -372,7 +406,8 @@ class RevolutController extends Controller
             // guard; Revolut's request_id (below) is the authoritative dedup, so a
             // legit retry with the same key never double-spends. Forgotten on
             // failure so a corrected retry can proceed.
-            if (! Cache::add($guardKey, true, now()->addHours(24))) {
+            if (OutboundPayment::where('bank_connection_id', $connection->id)->where('idempotency_key', $request->input('idempotency_key'))->exists()
+                || ! Cache::add($guardKey, true, now()->addHours(24))) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Duplicate payment: idempotency_key already used',
@@ -410,7 +445,7 @@ class RevolutController extends Controller
             }
 
             if ($payment->status === OutboundPayment::STATUS_FAILED) {
-                Cache::forget($guardKey); // allow a corrected retry
+                Cache::forget($guardKey); // persisted instruction still prevents an ambiguous replay
                 Log::error('Revolut payment failed to send', ['payment_id' => $payment->id]);
 
                 return response()->json([
@@ -430,12 +465,12 @@ class RevolutController extends Controller
             Cache::forget($guardKey);
             Log::error('Failed to send Revolut payment', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send payment: '.$e->getMessage(),
+                'message' => 'Failed to send payment',
             ], 500);
         }
     }
@@ -455,15 +490,15 @@ class RevolutController extends Controller
             'payments.*.receiver' => 'required|array',
             'payments.*.receiver.counterparty_id' => 'required_without:payments.*.receiver.account_id|string|nullable',
             'payments.*.receiver.account_id' => 'required_without:payments.*.receiver.counterparty_id|string|nullable',
-            'payments.*.amount' => 'required|numeric|min:0.01',
-            'payments.*.currency' => 'required|string|size:3',
+            'payments.*.amount' => 'required|numeric|min:0.01|decimal:0,2',
+            'payments.*.currency' => 'required|string|alpha|size:3',
             'payments.*.reference' => 'required|string|max:255',
         ]);
 
         $guardKey = 'revolut_bulkpay:'.$connection->id.':'.$request->input('idempotency_key');
 
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ($connection->bank_id !== 'revolut' || $this->ownedTeamId($request) === null || $connection->team_id !== $this->ownedTeamId($request)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -502,12 +537,12 @@ class RevolutController extends Controller
             Cache::forget($guardKey);
             Log::error('Failed to send Revolut bulk payment', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send bulk payment: '.$e->getMessage(),
+                'message' => 'Failed to send bulk payment',
             ], 500);
         }
     }
@@ -517,24 +552,54 @@ class RevolutController extends Controller
      */
     protected function processRevolutTransaction(array $revolutTransaction, BankConnection $connection): void
     {
-        $transactionId = $revolutTransaction['id'];
-        $amount = $revolutTransaction['legs'][0]['amount'] ?? 0;
-        $completedAt = $revolutTransaction['completed_at'] ?? $revolutTransaction['created_at'] ?? null;
+        $transactionId = is_scalar($revolutTransaction['id'] ?? null) ? (string) $revolutTransaction['id'] : '';
+        $legs = $revolutTransaction['legs'] ?? [];
+        if (! is_array($legs) || ! array_is_list($legs) || count($legs) !== 1 || ! is_array($legs[0])) {
+            throw new InvalidArgumentException('A Revolut import requires exactly one unambiguous transaction leg.');
+        }
+        $amount = is_scalar($legs[0]['amount'] ?? null) ? (string) $legs[0]['amount'] : '';
+        $currencyCode = is_string($legs[0]['currency'] ?? null) ? $legs[0]['currency'] : '';
+        $timestamp = $revolutTransaction['completed_at'] ?? $revolutTransaction['created_at'] ?? '';
+        $timestamp = is_string($timestamp) ? $timestamp : '';
+        $date = substr($timestamp, 0, 10);
+        $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        if ($transactionId === '' || strlen($transactionId) > 255 || count($legs) !== 1
+            || ! preg_match('/^-?\\d{1,10}(?:\\.\\d{1,2})?$/D', $amount)
+            || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}(?:[ T](?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})?)?$/D', $timestamp)
+            || $parsedDate === false || $parsedDate->format('Y-m-d') !== $date) {
+            throw new InvalidArgumentException('Revolut transactions require an unambiguous leg, valid identity, date and exact decimal amount.');
+        }
+        new DateTimeImmutable($timestamp);
+        $currency = Currency::query()->where('code', $currencyCode)->first();
+        if ($currency === null) {
+            throw new InvalidArgumentException('Revolut transaction currency must be configured before import.');
+        }
 
-        $transaction = Transaction::updateOrCreate(
-            [
-                'external_id' => $transactionId,
-                'bank_connection_id' => $connection->id,
-            ],
-            [
-                'transaction_date' => $completedAt ? date('Y-m-d', strtotime((string) $completedAt)) : now()->toDateString(),
-                'amount' => abs((float) $amount),
-                'type' => $amount < 0 ? 'debit' : 'credit',
-                'description' => $revolutTransaction['reference'] ?? $revolutTransaction['merchant']['name'] ?? 'Revolut transaction',
-                'category' => $this->categorizeRevolutTransaction($revolutTransaction),
-                'status' => $this->mapRevolutState($revolutTransaction['state'] ?? 'completed'),
-            ]
-        );
+        $transaction = Transaction::where('external_id', $transactionId)->lockForUpdate()->first();
+        if ($transaction !== null && ((int) $transaction->team_id !== (int) $connection->team_id
+            || (int) $transaction->bank_connection_id !== (int) $connection->id)) {
+            throw new LogicException('Revolut transaction identity belongs to another company or connection.');
+        }
+        $values = [
+            'team_id' => $connection->team_id,
+            'bank_connection_id' => $connection->id,
+            'currency_id' => $currency->getKey(),
+            'transaction_date' => $date,
+            'amount' => bccomp($amount, '0', 2) < 0 ? bcsub('0', $amount, 2) : bcadd($amount, '0', 2),
+            'type' => bccomp($amount, '0', 2) < 0 ? 'debit' : 'credit',
+            'description' => $revolutTransaction['reference'] ?? $revolutTransaction['merchant']['name'] ?? 'Revolut transaction',
+            'category' => $this->categorizeRevolutTransaction($revolutTransaction),
+            'status' => $this->mapRevolutState(is_string($revolutTransaction['state'] ?? null) ? $revolutTransaction['state'] : ''),
+        ];
+        if ($transaction === null) {
+            $transaction = Transaction::create($values + ['external_id' => $transactionId, 'reconciled' => false]);
+        } else {
+            $transaction->fill($values);
+            if ($transaction->reconciled && $transaction->isDirty()) {
+                throw new LogicException('Reconciled Revolut transactions require review before correction.');
+            }
+            $transaction->save();
+        }
 
         BankFeedTransaction::updateOrCreate(
             [
@@ -558,7 +623,7 @@ class RevolutController extends Controller
             'declined' => 'declined',
             'failed' => 'failed',
             'reverted' => 'cancelled',
-            default => 'posted',
+            default => 'pending',
         };
     }
 
@@ -567,7 +632,7 @@ class RevolutController extends Controller
      */
     protected function categorizeRevolutTransaction(array $revolutTransaction): string
     {
-        $type = strtolower($revolutTransaction['type'] ?? '');
+        $type = strtolower(is_string($revolutTransaction['type'] ?? null) ? $revolutTransaction['type'] : '');
 
         $typeMap = [
             'transfer' => 'transfer',
@@ -591,8 +656,15 @@ class RevolutController extends Controller
         return 'uncategorized';
     }
 
+    private function ownedTeamId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        return $user instanceof User ? TenantOwnership::currentTeamId($user->fresh()) : null;
+    }
+
     private function stateCacheKey(Request $request): string
     {
-        return 'revolut_oauth_state:'.$request->user()->id;
+        return 'revolut_oauth_state:'.$request->user()->id.':'.$this->ownedTeamId($request);
     }
 }
