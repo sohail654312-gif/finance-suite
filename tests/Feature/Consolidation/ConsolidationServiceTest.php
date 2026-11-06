@@ -41,7 +41,10 @@ class ConsolidationServiceTest extends TestCase
 
     private function account(int $teamId, string $type): Account
     {
-        return Account::factory()->create(['team_id' => $teamId, 'account_type' => $type]);
+        return Account::factory()->create([
+            'team_id' => $teamId, 'account_type' => $type, 'balance' => '0.00',
+            'normal_balance' => in_array($type, ['asset', 'expense'], true) ? 'debit' : 'credit',
+        ]);
     }
 
     /**
@@ -61,9 +64,9 @@ class ConsolidationServiceTest extends TestCase
             $entry->lines()->create(['account_id' => $accountId, 'debit_amount' => $debit, 'credit_amount' => $credit]);
         }
 
-        // Reporting fixture: prepare the full journal while draft. Never insert
-        // lines into a journal that is already posted.
-        $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
+        $entry->post();
+        $this->assertTrue($entry->is_posted);
+        $this->assertTrue($entry->isBalanced());
     }
 
     private function group(Team ...$members): ConsolidationGroup

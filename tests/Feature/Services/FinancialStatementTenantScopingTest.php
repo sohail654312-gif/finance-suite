@@ -48,14 +48,18 @@ class FinancialStatementTenantScopingTest extends TestCase
         $rev = Account::factory()->create(['team_id' => $teamId, 'account_type' => 'revenue', 'normal_balance' => 'credit', 'opening_balance' => 0]);
         $exp = Account::factory()->create(['team_id' => $teamId, 'account_type' => 'expense', 'normal_balance' => 'debit', 'opening_balance' => 0]);
         $asset = Account::factory()->create(['team_id' => $teamId, 'account_type' => 'asset', 'normal_balance' => 'debit', 'opening_balance' => $assetOpening]);
+        $offset = Account::factory()->create([
+            'team_id' => $teamId, 'account_type' => 'equity', 'normal_balance' => 'credit',
+            'opening_balance' => $assetOpening, 'balance' => $assetOpening,
+        ]);
 
-        $this->postLine($rev, credit: $revenue);
-        $this->postLine($exp, debit: $expense);
+        $this->postLine($rev, $offset, credit: $revenue);
+        $this->postLine($exp, $offset, debit: $expense);
 
         return ['user' => $user->fresh(), 'revenue' => $rev, 'expense' => $exp, 'asset' => $asset];
     }
 
-    private function postLine(Account $account, float $debit = 0, float $credit = 0): void
+    private function postLine(Account $account, Account $offset, float $debit = 0, float $credit = 0): void
     {
         $entry = JournalEntry::factory()->create([
             'entry_date' => '2024-06-15',
@@ -68,9 +72,12 @@ class FinancialStatementTenantScopingTest extends TestCase
             'credit_amount' => $credit,
         ]);
 
-        // Prepare the reporting fixture before marking it as posted; model
-        // guards must continue to reject edits to a posted journal's lines.
-        $entry->forceFill(['is_posted' => true, 'posted_at' => now()])->save();
+        $entry->lines()->create([
+            'account_id' => $offset->id, 'debit_amount' => $credit, 'credit_amount' => $debit,
+        ]);
+        $entry->post();
+        $this->assertTrue($entry->is_posted);
+        $this->assertTrue($entry->isBalanced());
     }
 
     public function test_profit_and_loss_only_includes_the_acting_teams_accounts(): void
