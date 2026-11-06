@@ -1,0 +1,43 @@
+name: Minimum Symfony security proposal
+on:
+  push:
+    branches: [finance-suite/coverage-security-85-90-20261106]
+    paths: [.github/workflows/symfony-security-proposal.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - run: composer validate --strict
+      - name: Resolve only seven advisory-affected packages and necessary companions
+        run: >-
+          composer update symfony/html-sanitizer:8.1.11 symfony/http-client:8.1.11
+          symfony/http-foundation:8.1.11 symfony/http-kernel:8.1.11
+          symfony/routing:8.1.11 symfony/serializer:8.1.11 symfony/yaml:8.1.11
+          --with-all-dependencies --minimal-changes --no-install --no-scripts --no-interaction --no-progress
+      - name: Verify genuine lock and clean audit
+        run: |
+          composer validate --strict
+          composer audit --locked --format=json > security-audit.json
+          git diff --exit-code -- composer.json
+          git diff --check
+          sha256sum composer.lock > composer.lock.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: symfony-minimum-patched-lock
+          path: |
+            composer.lock
+            composer.lock.sha256
+            security-audit.json
+          retention-days: 30
