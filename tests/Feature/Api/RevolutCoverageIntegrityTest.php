@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Role;
 
 beforeEach(function (): void {
     Http::preventStrayRequests();
@@ -319,6 +320,7 @@ it('rejects fractional-cent payment instructions before recording an approval or
 
 it('retains pending payment approval and durable identity after cache expiry', function (): void {
     $connection = revolutCoverageConnection($this->revolutOwner);
+    Role::findOrCreate('approver', 'web');
     ApprovalRule::query()->create(['team_id' => $connection->team_id, 'approvable_type' => 'OutboundPayment', 'min_amount' => 0, 'steps' => ['approver'], 'is_active' => true]);
     $this->postJson('/api/revolut/connections/'.$connection->id.'/pay', revolutCoveragePayment())->assertStatus(202)->assertJsonPath('status', 'pending_approval');
     Cache::forget('revolut_pay:'.$connection->id.':synthetic-payment-key');

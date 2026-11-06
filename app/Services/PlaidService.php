@@ -43,13 +43,13 @@ class PlaidService
      */
     protected function handlePlaidError(array $errorData, string $context): void
     {
-        $errorCode = $errorData['error_code'] ?? 'UNKNOWN_ERROR';
+        $reportedCode = $errorData['error_code'] ?? null;
+        $errorCode = in_array($reportedCode, ['ITEM_LOGIN_REQUIRED', 'INVALID_CREDENTIALS', 'INVALID_MFA', 'ITEM_LOCKED'], true)
+            ? $reportedCode : 'UNKNOWN_ERROR';
         $errorMessage = 'The provider rejected the request';
-        $errorType = $errorData['error_type'] ?? 'UNKNOWN';
 
         Log::error("Plaid API error in {$context}", [
             'error_code' => $errorCode,
-            'error_type' => $errorType,
         ]);
 
         // Determine if error requires user action
@@ -117,7 +117,7 @@ class PlaidService
                 'update_mode' => $accessToken !== null,
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to create link token.');
         }
     }
 
@@ -142,7 +142,7 @@ class PlaidService
             Log::error('Plaid public token exchange failed', [
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to exchange public token.');
         }
     }
 
@@ -169,7 +169,7 @@ class PlaidService
                 'institution_id' => $institutionId,
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to get institution.');
         }
     }
 
@@ -197,7 +197,7 @@ class PlaidService
                     // Only retry on 5xx errors or network issues, not 4xx
                     fn ($exception, $request): bool => $exception instanceof ConnectionException ||
                        ($exception instanceof RequestException &&
-                        $exception->response->status() >= 500))
+                        $exception->response->status() >= 500), throw: false)
                 ->post("{$this->baseUrl}/transactions/sync", $payload);
 
             if ($response->successful()) {
@@ -225,7 +225,8 @@ class PlaidService
                 'connection_id' => $connection->id,
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception(str_starts_with($e->getMessage(), 'User action required:')
+                ? 'User action required: Plaid connection requires reauthentication.' : 'Failed to sync transactions.');
         }
     }
 
@@ -252,7 +253,7 @@ class PlaidService
             Log::error('Plaid get accounts failed', [
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to get accounts.');
         }
     }
 
@@ -289,7 +290,7 @@ class PlaidService
             Log::error('Plaid get balances failed', [
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to get balances.');
         }
     }
 
@@ -316,7 +317,7 @@ class PlaidService
             Log::error('Plaid item removal failed', [
                 'exception_type' => $e::class,
             ]);
-            throw $e;
+            throw new Exception('Failed to remove item.');
         }
     }
 

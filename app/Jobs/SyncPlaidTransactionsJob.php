@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Models\BankConnection;
 use App\Models\BankFeedTransaction;
+use App\Models\Currency;
 use App\Models\Team;
 use App\Models\Transaction;
 use App\Models\User;
@@ -27,6 +28,9 @@ use Throwable;
 
 class SyncPlaidTransactionsJob implements ShouldQueue
 {
+    /** @var array{added:int,modified:int,removed:int,total_processed:int} */
+    public array $summary = ['added' => 0, 'modified' => 0, 'removed' => 0, 'total_processed' => 0];
+
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
@@ -128,6 +132,10 @@ class SyncPlaidTransactionsJob implements ShouldQueue
                         }
                         $this->removeTransaction($removedTransaction['transaction_id'], $connection);
                     }
+                    $this->summary['added'] += count($added);
+                    $this->summary['modified'] += count($modified);
+                    $this->summary['removed'] += count($removed);
+                    $this->summary['total_processed'] += $processedCount;
                     $hasMore = $transactionData['has_more'] ?? false;
                     if (! is_bool($hasMore) || (++$page >= 100 && $hasMore)
                         || ($hasMore && (! is_string($connection->plaid_cursor) || $connection->plaid_cursor === $previousCursor))) {
@@ -178,6 +186,12 @@ class SyncPlaidTransactionsJob implements ShouldQueue
      */
     protected function processPlaidTransaction(array $plaidTransaction, BankConnection $connection, bool $isUpdate = false): void
     {
+        $currencyCode = $plaidTransaction['iso_currency_code'] ?? null;
+        $currency = is_string($currencyCode) && preg_match('/^[A-Z]{3}$/D', $currencyCode)
+            ? Currency::where('code', $currencyCode)->first() : null;
+        if ($currency === null || ! empty($plaidTransaction['unofficial_currency_code'])) {
+            throw new InvalidArgumentException('Plaid transaction currency must be configured before import.');
+        }
         $transactionId = $plaidTransaction['transaction_id'] ?? null;
         $date = $plaidTransaction['date'] ?? $plaidTransaction['authorized_date'] ?? null;
         $amount = $plaidTransaction['amount'] ?? null;
@@ -195,6 +209,7 @@ class SyncPlaidTransactionsJob implements ShouldQueue
             throw new LogicException('Plaid transaction belongs to another company or connection.');
         }
         $values = [
+            'currency_id' => $currency->getKey(),
             'team_id' => $connection->team_id,
             'transaction_date' => $date,
             'amount' => bcadd(ltrim((string) $amount, '-'), '0', 2),

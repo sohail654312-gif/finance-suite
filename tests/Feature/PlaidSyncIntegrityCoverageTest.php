@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankConnection;
 use App\Models\BankFeedTransaction;
+use App\Models\Currency;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\PlaidService;
@@ -20,12 +21,13 @@ beforeEach(function (): void {
         'services.plaid.client_id' => 'synthetic-client', 'services.plaid.secret' => 'synthetic-secret']);
     $this->plaidOwner = User::factory()->create();
     $this->plaidTeam = app(TeamManagementService::class)->createPersonalTeamForUser($this->plaidOwner);
+    $this->plaidCurrency = Currency::firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'symbol' => '$', 'is_default' => true]);
     $this->plaidConnection = BankConnection::create([
         'bank_id' => 'plaid', 'user_id' => $this->plaidOwner->id, 'team_id' => $this->plaidTeam->id,
         'plaid_access_token' => 'synthetic-access', 'plaid_item_id' => 'synthetic-item', 'status' => 'active',
     ]);
     $this->plaidRow = ['transaction_id' => 'plaid-owned-1', 'date' => '2026-10-07',
-        'amount' => '-25.50', 'pending' => false, 'name' => 'Synthetic receipt', 'category' => ['Transfer', 'Deposit']];
+        'amount' => '-25.50', 'iso_currency_code' => 'USD', 'pending' => false, 'name' => 'Synthetic receipt', 'category' => ['Transfer', 'Deposit']];
 });
 
 function plaidSyncResponse(array $added = [], array $modified = [], array $removed = [], string $cursor = 'cursor-one', bool $more = false): array
@@ -45,6 +47,7 @@ it('imports exact cents as the connection tenant and retries without duplicate r
     $transaction = Transaction::sole();
     expect($transaction->amount)->toBe('25.50')->and($transaction->type)->toBe('credit')
         ->and($transaction->team_id)->toBe($this->plaidTeam->id)
+        ->and($transaction->currency_id)->toBe($this->plaidCurrency->getKey())
         ->and($transaction->status)->toBe('posted')->and($transaction->category)->toBe('deposit')
         ->and($transaction->reconciled)->toBeFalse()
         ->and(BankFeedTransaction::sole()->raw_data)->toBe($this->plaidRow)
@@ -72,7 +75,9 @@ it('rolls back all rows and cursor when any provider amount date or state is mal
         ->and($this->plaidConnection->fresh()->plaid_cursor)->toBeNull();
 })->with(['fractional cent' => [['amount' => '0.001']], 'exponent' => [['amount' => '1e2']],
     'invalid day' => [['date' => '2026-02-30']], 'timestamp' => [['date' => '2026-10-07 00:00:00']],
-    'missing identity' => [['transaction_id' => '']], 'unknown state' => [['pending' => 'false']]]);
+    'missing identity' => [['transaction_id' => '']], 'unknown state' => [['pending' => 'false']],
+    'missing currency' => [['iso_currency_code' => null]], 'unknown currency' => [['iso_currency_code' => 'XYZ']],
+    'unofficial currency' => [['unofficial_currency_code' => 'synthetic-token']]]);
 
 it('does not advance an invalid or stationary pagination cursor', function (): void {
     Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response([
