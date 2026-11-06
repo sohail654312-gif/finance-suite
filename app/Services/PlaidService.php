@@ -44,13 +44,12 @@ class PlaidService
     protected function handlePlaidError(array $errorData, string $context): void
     {
         $errorCode = $errorData['error_code'] ?? 'UNKNOWN_ERROR';
-        $errorMessage = $errorData['error_message'] ?? 'Unknown error occurred';
+        $errorMessage = 'The provider rejected the request';
         $errorType = $errorData['error_type'] ?? 'UNKNOWN';
 
         Log::error("Plaid API error in {$context}", [
             'error_code' => $errorCode,
             'error_type' => $errorType,
-            'error_message' => $errorMessage,
         ]);
 
         // Determine if error requires user action
@@ -111,12 +110,12 @@ class PlaidService
                 return $response->json();
             }
 
-            throw new Exception('Failed to create link token: '.$response->body());
+            throw new Exception('Failed to create link token.');
         } catch (Exception $e) {
             Log::error('Plaid link token creation failed', [
                 'user_id' => $userId,
                 'update_mode' => $accessToken !== null,
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -138,10 +137,10 @@ class PlaidService
                 return $response->json();
             }
 
-            throw new Exception('Failed to exchange public token: '.$response->body());
+            throw new Exception('Failed to exchange public token.');
         } catch (Exception $e) {
             Log::error('Plaid public token exchange failed', [
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -164,11 +163,11 @@ class PlaidService
                 return $response->json();
             }
 
-            throw new Exception('Failed to get institution: '.$response->body());
+            throw new Exception('Failed to get institution.');
         } catch (Exception $e) {
             Log::error('Plaid get institution failed', [
                 'institution_id' => $institutionId,
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -220,11 +219,11 @@ class PlaidService
                 $this->handlePlaidError($response->json(), 'syncTransactions');
             }
 
-            throw new Exception('Failed to sync transactions: '.$response->body());
+            throw new Exception('Failed to sync transactions.');
         } catch (Exception $e) {
             Log::error('Plaid transaction sync failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -248,10 +247,10 @@ class PlaidService
                 return $response->json();
             }
 
-            throw new Exception('Failed to get accounts: '.$response->body());
+            throw new Exception('Failed to get accounts.');
         } catch (Exception $e) {
             Log::error('Plaid get accounts failed', [
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -285,10 +284,10 @@ class PlaidService
                 return $response->json();
             }
 
-            throw new Exception('Failed to get balances: '.$response->body());
+            throw new Exception('Failed to get balances.');
         } catch (Exception $e) {
             Log::error('Plaid get balances failed', [
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -312,10 +311,10 @@ class PlaidService
                 return true;
             }
 
-            throw new Exception('Failed to remove item: '.$response->body());
+            throw new Exception('Failed to remove item.');
         } catch (Exception $e) {
             Log::error('Plaid item removal failed', [
-                'error' => $e->getMessage(),
+                'exception_type' => $e::class,
             ]);
             throw $e;
         }
@@ -383,7 +382,7 @@ class PlaidService
 
             return is_string($expected) && hash_equals($expected, hash('sha256', $bodyJson));
         } catch (\Throwable $e) {
-            Log::warning('Plaid webhook signature verification failed', ['error' => $e->getMessage()]);
+            Log::warning('Plaid webhook signature verification failed', ['exception_type' => $e::class]);
 
             return false;
         }

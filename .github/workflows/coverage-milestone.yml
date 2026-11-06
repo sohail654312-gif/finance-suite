@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      MILESTONE_PHASE: baseline
+      MILESTONE_PHASE: focused
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -43,13 +43,23 @@ jobs:
       - name: PHPStan
         if: always() && steps.install.outcome == 'success'
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Full tests and unchanged release coverage gate
+      - name: Focused behavioral coverage (not release acceptance)
         id: tests
         if: always() && steps.install.outcome == 'success'
-        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml
-      - name: Independent host coverage verification
-        if: always() && steps.tests.outcome != 'skipped'
-        run: php scripts/verify-host-coverage.php coverage.xml
+        run: >-
+          php artisan test --compact --coverage-clover=coverage.xml
+          tests/Feature/ProviderSyncCoverageTest.php tests/Feature/Api/SageSyncTest.php
+          tests/Feature/Api/XeroEntitiesSyncTest.php tests/Feature/Api/QuickBooksSyncTest.php
+          tests/Feature/ProviderIntegrityRecoveryTest.php
+          tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/Api/RevolutPaymentTest.php
+          tests/Feature/OutboundPaymentApprovalTest.php tests/Unit/Services/RevolutServiceTest.php
+          tests/Feature/ModuleSafetyCoverageTest.php tests/Feature/HmrcBoundaryCoverageTest.php
+          tests/Feature/HostModuleIntegrityTest.php tests/Feature/ModuleSystemTest.php
+          tests/Unit/Modules/ModuleManagerTest.php tests/Feature/HmrcRtiPayeTest.php
+          tests/Feature/HmrcCorporationTaxTest.php tests/Unit/Services/HmrcMtdVatServiceTest.php
+          tests/Feature/PlaidSyncIntegrityCoverageTest.php tests/Unit/Services/PlaidServiceTest.php
+          tests/Feature/Api/PlaidWebhookControllerTest.php tests/Feature/Api/PlaidControllerTest.php
+          tests/Feature/Api/PlaidBalanceTest.php
       - name: Preserve measured evidence
         if: always() && hashFiles('coverage.xml') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -16,6 +16,7 @@ use App\Models\Vendor;
 use App\Services\Concerns\RequestsProviderTokens;
 use App\Services\Concerns\ResolvesSyncedContacts;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -183,28 +184,30 @@ class SageService
     {
         $rows = $this->client($connection)->get('/quotes')->throw()->json()['$items'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['id'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['id'])) {
+                    continue;
+                }
+
+                Estimate::updateOrCreate(
+                    ['sage_id' => (string) $row['id'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['contact_id'] ?? null, $row['contact_name'] ?? null, $connection->team_id),
+                        'estimate_number' => $row['reference'] ?? $row['displayed_as'] ?? 'SAGE-'.$row['id'],
+                        'estimate_date' => $row['date'] ?? now()->toDateString(),
+                        'expiration_date' => $row['expiry_date'] ?? null,
+                        'total_amount' => $row['total_amount'] ?? 0,
+                        'subtotal_amount' => $row['net_amount'] ?? $row['total_amount'] ?? 0,
+                        'tax_amount' => $row['tax_amount'] ?? 0,
+                        'status' => 'draft',
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            Estimate::updateOrCreate(
-                ['sage_id' => (string) $row['id'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['contact_id'] ?? null, $row['contact_name'] ?? null, $connection->team_id),
-                    'estimate_number' => $row['reference'] ?? $row['displayed_as'] ?? 'SAGE-'.$row['id'],
-                    'estimate_date' => $row['date'] ?? now()->toDateString(),
-                    'expiration_date' => $row['expiry_date'] ?? null,
-                    'total_amount' => $row['total_amount'] ?? 0,
-                    'subtotal_amount' => $row['net_amount'] ?? $row['total_amount'] ?? 0,
-                    'tax_amount' => $row['tax_amount'] ?? 0,
-                    'status' => 'draft',
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCreditMemo(CreditMemo $creditMemo, SageConnection $connection): CreditMemo
@@ -231,27 +234,29 @@ class SageService
     {
         $rows = $this->client($connection)->get('/sales_credit_notes')->throw()->json()['$items'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['id'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['id'])) {
+                    continue;
+                }
+
+                CreditMemo::updateOrCreate(
+                    ['sage_id' => (string) $row['id'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['contact_id'] ?? null, $row['contact_name'] ?? null, $connection->team_id),
+                        'credit_memo_number' => $row['reference'] ?? $row['displayed_as'] ?? 'SAGE-'.$row['id'],
+                        'credit_memo_date' => $row['date'] ?? now()->toDateString(),
+                        'total_amount' => $row['total_amount'] ?? 0,
+                        'subtotal_amount' => $row['net_amount'] ?? $row['total_amount'] ?? 0,
+                        'tax_amount' => $row['tax_amount'] ?? 0,
+                        'status' => 'open',
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            CreditMemo::updateOrCreate(
-                ['sage_id' => (string) $row['id'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['contact_id'] ?? null, $row['contact_name'] ?? null, $connection->team_id),
-                    'credit_memo_number' => $row['reference'] ?? $row['displayed_as'] ?? 'SAGE-'.$row['id'],
-                    'credit_memo_date' => $row['date'] ?? now()->toDateString(),
-                    'total_amount' => $row['total_amount'] ?? 0,
-                    'subtotal_amount' => $row['net_amount'] ?? $row['total_amount'] ?? 0,
-                    'tax_amount' => $row['tax_amount'] ?? 0,
-                    'status' => 'open',
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCustomer(Customer $customer, SageConnection $connection): Customer
@@ -445,7 +450,11 @@ class SageService
                 continue;
             }
 
-            $invoiceId = Invoice::where('sage_id', $row['invoice_id'] ?? null)->where('team_id', $connection->team_id)->value('id');
+            $invoiceReference = $row['invoice_id'] ?? null;
+            if ((! is_string($invoiceReference) && ! is_int($invoiceReference)) || trim((string) $invoiceReference) === '') {
+                continue;
+            }
+            $invoiceId = Invoice::where('sage_id', (string) $invoiceReference)->where('team_id', $connection->team_id)->value('id');
             if ($invoiceId === null) {
                 continue;
             }
