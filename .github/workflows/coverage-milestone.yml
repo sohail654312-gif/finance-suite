@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      MILESTONE_PHASE: focused
+      MILESTONE_PHASE: focused-v2
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -60,6 +60,8 @@ jobs:
           tests/Feature/PlaidSyncIntegrityCoverageTest.php tests/Unit/Services/PlaidServiceTest.php
           tests/Feature/Api/PlaidWebhookControllerTest.php tests/Feature/Api/PlaidControllerTest.php
           tests/Feature/Api/PlaidBalanceTest.php
+          tests/Feature/PlaidProviderErrorCoverageTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
+          tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
       - name: Preserve measured evidence
         if: always() && hashFiles('coverage.xml') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

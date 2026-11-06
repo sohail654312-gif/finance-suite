@@ -140,7 +140,7 @@ it('denies foreign and revoked identities before requesting provider data', func
     expect(Transaction::count())->toBe(0);
 })->with(['foreign', 'viewer', 'revoked']);
 
-it('skips inactive connections and denies demo missing-token and orphaned identities', function (string $state): void {
+it('skips inactive connections and denies demo missing-token orphaned and wrong-provider identities', function (string $state): void {
     if ($state === 'inactive') {
         $this->plaidConnection->update(['status' => 'inactive']);
         executePlaidSync($this->plaidConnection);
@@ -154,11 +154,14 @@ it('skips inactive connections and denies demo missing-token and orphaned identi
         if ($state === 'orphan') {
             $this->plaidConnection->update(['team_id' => null]);
         }
-        expect(fn () => executePlaidSync($this->plaidConnection))->toThrow($state === 'orphan' ? AuthorizationException::class : LogicException::class);
+        if ($state === 'provider') {
+            $this->plaidConnection->update(['bank_id' => 'revolut']);
+        }
+        expect(fn () => executePlaidSync($this->plaidConnection))->toThrow(in_array($state, ['orphan', 'provider']) ? AuthorizationException::class : LogicException::class);
     }
     Http::assertNothingSent();
     expect(Transaction::count())->toBe(0);
-})->with(['inactive', 'demo', 'token', 'orphan']);
+})->with(['inactive', 'demo', 'token', 'orphan', 'provider']);
 
 it('reauthenticates provider-rejected connections without leaking provider secrets into job logs', function (): void {
     Log::spy();

@@ -60,6 +60,7 @@ class SyncPlaidTransactionsJob implements ShouldQueue
      */
     public function handle(PlaidService $plaidService): void
     {
+        $this->summary = ['added' => 0, 'modified' => 0, 'removed' => 0, 'total_processed' => 0];
         try {
             $connection = BankConnection::findOrFail($this->connectionId);
             $this->assertConnectionAuthority($connection);
@@ -265,6 +266,9 @@ class SyncPlaidTransactionsJob implements ShouldQueue
 
     protected function assertConnectionAuthority(BankConnection $connection): void
     {
+        if ($connection->bank_id !== 'plaid') {
+            throw new AuthorizationException('Plaid synchronization requires a Plaid connection.');
+        }
         $team = Team::find($connection->team_id);
         $owner = User::find($connection->user_id);
         if ($team === null || $owner === null || ! $owner->belongsToTeam($team)) {
