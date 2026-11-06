@@ -26,25 +26,35 @@ jobs:
           php-version: '8.5'
           extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
           coverage: none
-      - name: Install and audit locked dependencies
+      - name: Validate locked manifest
+        id: manifest
+        run: composer validate --strict
+      - name: Audit locked dependencies
+        run: composer audit --locked
+      - name: Install locked dependencies
+        id: install
+        if: always() && steps.manifest.outcome == 'success'
         run: |
-          composer validate --strict
-          composer audit --locked
           cp .env.testing .env
           composer install --no-interaction --prefer-dist --optimize-autoloader
           git restore --source=HEAD --worktree -- modules themes
           php artisan key:generate
       - name: Check changed fixture formatting
+        id: formatting
+        if: always() && steps.install.outcome == 'success'
         run: >-
           vendor/bin/pint --test
           tests/Feature/LegacyPostedJournalLineIntegrityTest.php
           tests/Feature/Consolidation/ConsolidationServiceTest.php
           tests/Feature/Services/FinancialStatementTenantScopingTest.php
       - name: Verify the three formerly failing suites
+        id: affected
+        if: always() && steps.formatting.outcome == 'success'
         run: >-
           php artisan test --compact
           tests/Feature/LegacyPostedJournalLineIntegrityTest.php
           tests/Feature/Consolidation/ConsolidationServiceTest.php
           tests/Feature/Services/FinancialStatementTenantScopingTest.php
       - name: Preserve posting authority and immutable reversal regressions
+        if: always() && steps.affected.outcome == 'success'
         run: php artisan test --compact tests/Feature/LegacyJournalPostingHistoryTest.php
