@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      MILESTONE_PHASE: focused-v2
+      MILESTONE_PHASE: focused-v3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -52,7 +52,7 @@ jobs:
           tests/Feature/Api/XeroEntitiesSyncTest.php tests/Feature/Api/QuickBooksSyncTest.php
           tests/Feature/ProviderIntegrityRecoveryTest.php
           tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/Api/RevolutPaymentTest.php
-          tests/Feature/OutboundPaymentApprovalTest.php tests/Unit/Services/RevolutServiceTest.php
+          tests/Feature/Api/OutboundPaymentApprovalTest.php tests/Unit/Services/RevolutServiceTest.php
           tests/Feature/ModuleSafetyCoverageTest.php tests/Feature/HmrcBoundaryCoverageTest.php
           tests/Feature/HostModuleIntegrityTest.php tests/Feature/ModuleSystemTest.php
           tests/Unit/Modules/ModuleManagerTest.php tests/Feature/HmrcRtiPayeTest.php

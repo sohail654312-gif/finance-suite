@@ -9,8 +9,8 @@ Status: implementation and cloud verification in progress. No release acceptance
 - PR #25: `dd1f74eca89b27fa259934563f4272777740af96`, based on #22. Its three test fixture corrections establish balanced posted journals using the real posting service, retaining all denied mutation assertions. Focused journal and authorization suites passed; dependency audit blocked the overall job.
 - Working branch: `finance-suite/coverage-security-85-90-20261106`, based on #25. Draft [PR #26](https://github.com/sohail654312-gif/finance-suite/pull/26) preserves this stack.
 - Historical measured #22 baseline: 1,562 passed, nine failed, 6,036 assertions; 10,931 / 14,440 executable host lines = 75.6994%, 3,509 uncovered. [Run 41425419340](https://github.com/sohail654312-gif/finance-suite/actions/runs/41425419340). This is historical evidence, not the new baseline.
-- Fresh strict baseline source: `1c0af3581cfc179c3d21aeecb9eeb0ae4588a527`, [run 42169655774](https://github.com/sohail654312-gif/finance-suite/actions/runs/42169655774). Functional and Clover results pending. Manifest, exact installation, Pint, PHPStan passed; locked audit reported 15 advisories in seven Symfony packages.
-- Minimum Composer-generated Symfony patch proposal: [run 42169836416](https://github.com/sohail654312-gif/finance-suite/actions/runs/42169836416), pinned to 8.1.11 for the seven affected packages, minimal necessary companions only. Resolution/audit pending; no advisory ignores or manifest relaxation.
+- Fresh strict baseline source: `1c0af3581cfc179c3d21aeecb9eeb0ae4588a527`. The full suite passed 1,571 tests with 6,107 assertions. Independent Clover verification counted 10,961 of 14,440 executable host lines, or 75.9072%, leaving 3,479 uncovered. Manifest, exact installation, Pint and PHPStan passed. The 100% gate failed, and locked audit reported 15 advisories in seven Symfony packages. [Run 42169655774](https://github.com/sohail654312-gif/finance-suite/actions/runs/42169655774)
+- The Composer-generated lock updates exactly seven package records to Symfony 8.1.11. SHA-256 `1f6572df52bdfbdaa6bb96f7069d83130cf93519307bbefc1dc4d5b5fe9d6d3d` matches the reviewed artifact. Manifest content hash is unchanged. The proposal and the subsequent focused installation both reported zero advisories. [Proposal run 42169836416](https://github.com/sohail654312-gif/finance-suite/actions/runs/42169836416) · [Focused run 42171358862](https://github.com/sohail654312-gif/finance-suite/actions/runs/42171358862)
 
 ## Ranked coverage program
 
@@ -21,7 +21,7 @@ Ranked from the historical Clover statement inventory. Counts are opportunities,
 | Revolut controller/webhook | 356 | Owned active connection, exact decimal/currency/date imports, atomic retries, reconciled history protection, approved durable payment identity, webhook signatures |
 | Sage/Xero/QuickBooks services | 430 | Eight outbound mappings per provider, inbound identity and ownership, absent invoice references, atomic malformed batches, retry idempotency |
 | Plaid job/command/service/webhook | 246 | Current accounting authority, tenant identity, exact amounts, bounded cursor pagination, reconciled correction denial, signed event routing, secret-safe failures |
-| External modules/base/manager/provider | 237 | Canonical paths, symlink containment, recursive dependencies and cycles, poisoned cache, actual route/config/publication registration, migration failures |
+| External modules/base/manager/provider | 172 | Canonical paths, symlink containment, recursive dependencies and cycles, poisoned cache, actual route/config/publication registration, migration failures |
 | HMRC authentication and PAYE/CT models | 162 | Persisted tenant token isolation, expiry/malformed grants, denied cross-company calculations and explicit absent statutory-data contracts |
 | Host administrator user pages/forms/table | 223 | Actual permitted/denied Livewire behavior, password preservation/hashing, validated identity, role assignments, filters and secret redaction |
 
@@ -41,4 +41,4 @@ External module roots and class sources must remain inside canonical configured 
 
 Focused coverage is diagnostic and is not release acceptance. Final full verification retains `--coverage --min=100 --coverage-clover=coverage.xml` and independent `scripts/verify-host-coverage.php`; existing required CI checks and source scope are unchanged. No excluded source, deleted failing test, generated empty invocation coverage, or lowered threshold is permitted.
 
-Fresh/final exact counts, per-file deltas, exact source SHA, audit lock hash, full-suite assertions, PostgreSQL concurrency, and actual remaining gaps will be recorded after execution. Until then the 85% and 90% targets are unverified; the 100% release gate and full integrated acceptance are not accepted.
+Final exact counts, per-file deltas, source SHA, full-suite assertions, and PostgreSQL concurrency results remain pending. The 85% and 90% targets remain unverified.

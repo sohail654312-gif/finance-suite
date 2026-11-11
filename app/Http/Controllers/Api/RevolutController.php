@@ -224,9 +224,9 @@ class RevolutController extends Controller
                             'account_name' => $account['name'],
                             'account_type' => $account['type'] ?? 'current',
                             'account_subtype' => null,
-                            'current_balance' => $account['balance'] ?? null,
-                            'available_balance' => $account['balance'] ?? null,
-                            'iso_currency_code' => $account['currency'] ?? null,
+                            'current_balance' => $account['balance'],
+                            'available_balance' => $account['balance'],
+                            'iso_currency_code' => $account['currency'],
                             'last_updated_at' => now(),
                         ]
                     );
@@ -563,7 +563,7 @@ class RevolutController extends Controller
         $timestamp = is_string($timestamp) ? $timestamp : '';
         $date = substr($timestamp, 0, 10);
         $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-        if ($transactionId === '' || strlen($transactionId) > 255 || count($legs) !== 1
+        if ($transactionId === '' || strlen($transactionId) > 255
             || ! preg_match('/^-?\\d{1,10}(?:\\.\\d{1,2})?$/D', $amount)
             || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}(?:[ T](?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})?)?$/D', $timestamp)
             || $parsedDate === false || $parsedDate->format('Y-m-d') !== $date) {

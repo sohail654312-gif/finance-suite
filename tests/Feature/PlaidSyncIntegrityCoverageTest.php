@@ -140,6 +140,18 @@ it('denies foreign and revoked identities before requesting provider data', func
     expect(Transaction::count())->toBe(0);
 })->with(['foreign', 'viewer', 'revoked']);
 
+it('permits current accounting members to synchronize the selected shared connection', function (string $role): void {
+    $member = User::factory()->create();
+    $this->plaidTeam->users()->attach($member->id, ['role' => $role]);
+    $member->switchTeam($this->plaidTeam);
+    $this->actingAs($member->fresh());
+    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response(plaidSyncResponse([$this->plaidRow]))]);
+    executePlaidSync($this->plaidConnection);
+    expect(Transaction::sole()->team_id)->toBe($this->plaidTeam->id)
+        ->and($this->plaidConnection->fresh()->plaid_cursor)->toBe('cursor-one');
+    Http::assertSentCount(1);
+})->with(['admin', 'accountant']);
+
 it('skips inactive connections and denies demo missing-token orphaned and wrong-provider identities', function (string $state): void {
     if ($state === 'inactive') {
         $this->plaidConnection->update(['status' => 'inactive']);
