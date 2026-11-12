@@ -39,7 +39,7 @@ jobs:
           tests/Feature/PlaidSyncIntegrityCoverageTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Rerun affected regression suites
+      - name: Verify repaired administration and bank integration regressions
         run: >-
           php artisan test --compact
           tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/Api/PlaidControllerTest.php

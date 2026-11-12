@@ -15,6 +15,16 @@ class EditUser extends EditRecord
     protected static string $resource = UserResource::class;
 
     #[\Override]
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        // The model hides email from serialization. The authorized edit form
+        // still needs the current address when saving other fields.
+        $data['email'] = $this->getRecord()->getAttribute('email');
+
+        return $data;
+    }
+
+    #[\Override]
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         if (array_key_exists('profile_photo_path', $data)) {

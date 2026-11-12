@@ -121,6 +121,21 @@ it('rotates an administrator-managed password using a hash instead of storing pl
         ->and(Hash::check('Synthetic-Rotation-836!', $target->fresh()->password))->toBeTrue();
 });
 
+it('rejects role assignments from a different tenant', function (): void {
+    [, $team, $target] = adminUserCoverageFixture();
+    $foreignOwner = User::factory()->create();
+    $foreignTeam = app(TeamManagementService::class)->createPersonalTeamForUser($foreignOwner);
+    $foreignRole = Role::firstOrCreate(['name' => 'foreign-auditor', 'guard_name' => 'web', 'team_id' => $foreignTeam->getKey()]);
+    setPermissionsTeamId($team->getKey());
+
+    Livewire::test(EditUser::class, ['record' => $target->getRouteKey()])
+        ->set('data.roles', [$foreignRole->getKey()])
+        ->call('save')
+        ->assertHasFormErrors(['roles']);
+
+    $this->assertDatabaseMissing('model_has_roles', ['model_id' => $target->getKey(), 'role_id' => $foreignRole->getKey()]);
+});
+
 it('rejects duplicate email and invalid profile input without modifying the account', function (array $input, string $field): void {
     [$admin, , $target] = adminUserCoverageFixture();
     $before = $target->only(['name', 'email', 'password']);
