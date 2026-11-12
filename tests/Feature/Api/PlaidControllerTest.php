@@ -163,6 +163,8 @@ class PlaidControllerTest extends TestCase
         $connection = BankConnection::factory()->create([
             'user_id' => $this->user->id,
             'team_id' => $this->user->current_team_id,
+            'bank_id' => 'ins_123',
+            'plaid_institution_id' => 'ins_123',
             'plaid_access_token' => 'access-test-token',
             'status' => 'active',
         ]);

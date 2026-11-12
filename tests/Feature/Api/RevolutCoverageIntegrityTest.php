@@ -336,7 +336,10 @@ it('records a failed provider send once and requires review before ambiguous rep
     $this->postJson('/api/revolut/connections/'.$connection->id.'/pay', revolutCoveragePayment())->assertStatus(500)->assertJsonPath('message', 'Payment failed to send');
     $this->postJson('/api/revolut/connections/'.$connection->id.'/pay', revolutCoveragePayment())->assertStatus(409);
     expect(OutboundPayment::count())->toBe(1)->and(OutboundPayment::sole()->status)->toBe('failed');
-    Log::shouldHaveReceived('error')->with('Outbound payment send failed', ['payment_id' => OutboundPayment::sole()->id, 'exception_class' => RuntimeException::class])->once();
+    $paymentId = OutboundPayment::sole()->id;
+    Log::shouldHaveReceived('error')->twice();
+    Log::shouldHaveReceived('error', ['Outbound payment send failed', ['payment_id' => $paymentId, 'exception_class' => RuntimeException::class]])->once();
+    Log::shouldHaveReceived('error', ['Revolut payment failed to send', ['payment_id' => $paymentId]])->once();
 });
 
 it('submits a synthetic bulk draft once with its schedule and rejects duplicate submission', function (): void {

@@ -112,7 +112,7 @@ it('rotates an administrator-managed password using a hash instead of storing pl
     $passwordBefore = $target->password;
 
     Livewire::test(EditUser::class, ['record' => $target->getRouteKey()])
-        ->fillForm(['password' => 'Synthetic-Rotation-836!'])
+        ->set('data.password', 'Synthetic-Rotation-836!')
         ->call('save')
         ->assertHasNoFormErrors();
 

@@ -92,11 +92,11 @@ it('records a removed-transactions count without deleting recognized financial h
         'external_id' => 'synthetic-removed-transaction', 'transaction_date' => '2026-11-01',
         'amount' => '50.25', 'type' => 'debit', 'status' => 'posted', 'reconciled' => true,
     ]);
-    $original = $transaction->getRawOriginal();
+    $original = $transaction->refresh()->getRawOriginal();
     $this->plaidWebhookService->shouldReceive('verifyWebhookSignature')->once()->andReturn(true);
     $this->postJson('/api/webhooks/plaid', plaidCoverageWebhook('TRANSACTIONS', 'TRANSACTIONS_REMOVED', ['removed_transactions' => ['synthetic-removed-transaction', 'synthetic-other-transaction']]))->assertOk();
     expect($transaction->fresh()->getRawOriginal())->toBe($original);
-    Log::shouldHaveReceived('info')->once()->with('Transactions removed', ['connection_id' => $this->plaidWebhookConnection->id, 'count' => 2]);
+    Log::shouldHaveReceived('info', ['Transactions removed', ['connection_id' => $this->plaidWebhookConnection->id, 'count' => 2]])->once();
     Bus::assertNothingDispatched();
 });
 
@@ -136,7 +136,7 @@ it('handles authentication assets and future webhook families without logging ra
     $payload = plaidCoverageWebhook($type, 'SYNTHETIC_NOTIFICATION', ['access_token' => 'synthetic-private-access-token', 'financial_records' => ['private' => 'synthetic-record']]);
     $this->postJson('/api/webhooks/plaid', $payload)->assertOk();
     if ($type === 'AUTH' || $type === 'ASSETS') {
-        Log::shouldHaveReceived('info')->once()->with($type === 'AUTH' ? 'Auth webhook received' : 'Assets webhook received', ['code' => 'SYNTHETIC_NOTIFICATION']);
+        Log::shouldHaveReceived('info', [$type === 'AUTH' ? 'Auth webhook received' : 'Assets webhook received', ['code' => 'SYNTHETIC_NOTIFICATION']])->once();
     }
     Bus::assertNothingDispatched();
     expect(Transaction::count())->toBe(0)->and(OutboundPayment::count())->toBe(0);

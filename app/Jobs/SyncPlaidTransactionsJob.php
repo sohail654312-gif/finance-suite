@@ -266,7 +266,14 @@ class SyncPlaidTransactionsJob implements ShouldQueue
 
     protected function assertConnectionAuthority(BankConnection $connection): void
     {
-        if ($connection->bank_id !== 'plaid') {
+        // Older links use the institution ID as the bank ID. Require matching
+        // Plaid metadata and never accept a connection for another provider.
+        $hasPlaidInstitution = is_string($connection->plaid_institution_id)
+            && $connection->plaid_institution_id !== ''
+            && $connection->bank_id === $connection->plaid_institution_id;
+        if (in_array($connection->bank_id, ['revolut', 'wise'], true)
+            || ($connection->bank_id !== 'plaid' && ! $hasPlaidInstitution)
+            || ! is_string($connection->plaid_item_id) || $connection->plaid_item_id === '') {
             throw new AuthorizationException('Plaid synchronization requires a Plaid connection.');
         }
         $team = Team::find($connection->team_id);

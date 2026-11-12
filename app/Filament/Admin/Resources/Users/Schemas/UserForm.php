@@ -54,6 +54,7 @@ class UserForm
                                         FileUpload::make('profile_photo_path')
                                             ->label('Profile Photo')
                                             ->image()
+                                            ->preventFilePathTampering()
                                             ->imageEditor()
                                             ->maxSize(2048)
                                             ->directory('profile-photos')

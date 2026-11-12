@@ -64,7 +64,7 @@ it('follows every advancing provider page before committing the cursor', functio
     $row = Transaction::where('external_id', 'plaid-owned-2')->sole();
     expect($row->amount)->toBe('0.30')->and($row->type)->toBe('debit')
         ->and($row->status)->toBe('pending')->and($row->category)->toBe('uncategorized');
-    Http::assertSent(fn ($request): bool => $request['cursor'] === 'page-one');
+    Http::assertSent(fn ($request): bool => ($request->data()['cursor'] ?? null) === 'page-one');
 });
 
 it('rolls back all rows and cursor when any provider amount date or state is malformed', function (array $change): void {
@@ -88,28 +88,30 @@ it('does not advance an invalid or stationary pagination cursor', function (): v
 });
 
 it('protects reconciled money from modification and removal but permits identical replay', function (bool $remove): void {
-    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response(plaidSyncResponse([$this->plaidRow]))]);
+    $initial = plaidSyncResponse([$this->plaidRow]);
+    $rejected = $remove
+        ? plaidSyncResponse(removed: [['transaction_id' => $this->plaidRow['transaction_id']]], cursor: 'forbidden')
+        : plaidSyncResponse(modified: [[...$this->plaidRow, 'amount' => '99.00']], cursor: 'forbidden');
+    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::sequence()->push($initial)->push($initial)->push($rejected)]);
     executePlaidSync($this->plaidConnection);
     $transaction = Transaction::sole();
     $transaction->update(['reconciled' => true]);
     executePlaidSync($this->plaidConnection);
-    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response($remove
-        ? plaidSyncResponse(removed: [['transaction_id' => $this->plaidRow['transaction_id']]], cursor: 'forbidden')
-        : plaidSyncResponse(modified: [[...$this->plaidRow, 'amount' => '99.00']], cursor: 'forbidden'))]);
     expect(fn () => executePlaidSync($this->plaidConnection))->toThrow(LogicException::class, 'Reconciled');
     expect($transaction->fresh()->amount)->toBe('25.50')->and($transaction->fresh()->reconciled)->toBeTrue()
         ->and($this->plaidConnection->fresh()->plaid_cursor)->toBe('cursor-one');
 })->with([false, true]);
 
 it('updates and removes only its own unreconciled transaction', function (): void {
-    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response(plaidSyncResponse([$this->plaidRow]))]);
+    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::sequence()
+        ->push(plaidSyncResponse([$this->plaidRow]))
+        ->push(plaidSyncResponse(modified: [[...$this->plaidRow, 'amount' => '12.34']]))
+        ->push(plaidSyncResponse(removed: [
+            ['transaction_id' => 'unknown'], ['transaction_id' => $this->plaidRow['transaction_id']],
+        ]))]);
     executePlaidSync($this->plaidConnection);
-    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response(plaidSyncResponse(modified: [[...$this->plaidRow, 'amount' => '12.34']]))]);
     executePlaidSync($this->plaidConnection);
     expect(Transaction::sole()->amount)->toBe('12.34');
-    Http::fake(['sandbox.plaid.com/transactions/sync' => Http::response(plaidSyncResponse(removed: [
-        ['transaction_id' => 'unknown'], ['transaction_id' => $this->plaidRow['transaction_id']],
-    ]))]);
     executePlaidSync($this->plaidConnection);
     expect(Transaction::count())->toBe(0)->and(BankFeedTransaction::count())->toBe(0);
 });
@@ -167,7 +169,7 @@ it('skips inactive connections and denies demo missing-token orphaned and wrong-
             $this->plaidConnection->update(['team_id' => null]);
         }
         if ($state === 'provider') {
-            $this->plaidConnection->update(['bank_id' => 'revolut']);
+            $this->plaidConnection->update(['bank_id' => 'revolut', 'plaid_institution_id' => 'revolut']);
         }
         expect(fn () => executePlaidSync($this->plaidConnection))->toThrow(in_array($state, ['orphan', 'provider']) ? AuthorizationException::class : LogicException::class);
     }

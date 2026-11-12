@@ -10,11 +10,45 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  measure:
+  focused:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      MILESTONE_PHASE: focused-v3
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install and audit exact source
+        run: |
+          composer validate --strict
+          composer audit --locked
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Pint for the repaired files
+        run: >-
+          vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
+          app/Filament/Admin/Resources/Users tests/Feature/AdminUserManagementCoverageTest.php
+          tests/Feature/Api/PlaidControllerTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
+          tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
+          tests/Feature/PlaidSyncIntegrityCoverageTest.php
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+      - name: Rerun affected regression suites
+        run: >-
+          php artisan test --compact
+          tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/Api/PlaidControllerTest.php
+          tests/Feature/Api/PlaidWebhookCoverageTest.php tests/Feature/Api/RevolutCoverageIntegrityTest.php
+          tests/Feature/PlaidEntryPointIntegrityTest.php tests/Feature/PlaidSyncIntegrityCoverageTest.php
+  full:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -24,48 +58,73 @@ jobs:
           php-version: '8.5'
           extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
           coverage: xdebug
-      - name: Validate manifest
-        id: manifest
-        run: composer validate --strict
-      - name: Audit locked dependencies
-        run: composer audit --locked
-      - name: Install exact source
-        id: install
-        if: always() && steps.manifest.outcome == 'success'
+      - name: Install and audit exact source
         run: |
+          composer validate --strict
+          composer audit --locked
           cp .env.testing .env
           composer install --no-interaction --prefer-dist --optimize-autoloader
           git restore --source=HEAD --worktree -- modules themes
           php artisan key:generate
-      - name: Pint
-        if: always() && steps.install.outcome == 'success'
-        run: vendor/bin/pint --test
-      - name: PHPStan
-        if: always() && steps.install.outcome == 'success'
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Focused behavioral coverage (not release acceptance)
-        id: tests
-        if: always() && steps.install.outcome == 'success'
-        run: >-
-          php artisan test --compact --coverage-clover=coverage.xml
-          tests/Feature/ProviderSyncCoverageTest.php tests/Feature/Api/SageSyncTest.php
-          tests/Feature/Api/XeroEntitiesSyncTest.php tests/Feature/Api/QuickBooksSyncTest.php
-          tests/Feature/ProviderIntegrityRecoveryTest.php
-          tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/Api/RevolutPaymentTest.php
-          tests/Feature/Api/OutboundPaymentApprovalTest.php tests/Unit/Services/RevolutServiceTest.php
-          tests/Feature/ModuleSafetyCoverageTest.php tests/Feature/HmrcBoundaryCoverageTest.php
-          tests/Feature/HostModuleIntegrityTest.php tests/Feature/ModuleSystemTest.php
-          tests/Unit/Modules/ModuleManagerTest.php tests/Feature/HmrcRtiPayeTest.php
-          tests/Feature/HmrcCorporationTaxTest.php tests/Unit/Services/HmrcMtdVatServiceTest.php
-          tests/Feature/PlaidSyncIntegrityCoverageTest.php tests/Unit/Services/PlaidServiceTest.php
-          tests/Feature/Api/PlaidWebhookControllerTest.php tests/Feature/Api/PlaidControllerTest.php
-          tests/Feature/Api/PlaidBalanceTest.php
-          tests/Feature/PlaidProviderErrorCoverageTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
-          tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
-      - name: Preserve measured evidence
+      - name: Full tests and 100% release coverage gate
+        id: full_tests
+        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml --log-junit=junit.xml
+      - name: Independent host coverage verification
+        if: always() && steps.full_tests.outcome != 'skipped'
+        run: php scripts/verify-host-coverage.php coverage.xml
+      - name: Preserve test and Clover reports
         if: always() && hashFiles('coverage.xml') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: milestone-${{ env.MILESTONE_PHASE }}-${{ github.sha }}
-          path: coverage.xml
+          name: milestone-final-${{ github.sha }}
+          path: |
+            coverage.xml
+            junit.xml
           retention-days: 30
+  postgres-ledger:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: finance_suite_test
+          POSTGRES_USER: finance_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_DATABASE: finance_suite_test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: finance_test
+      DB_PASSWORD: synthetic-ci-only
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_pgsql, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install and audit exact lock
+        run: |
+          composer validate --strict
+          composer audit --locked
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+      - name: Prepare synthetic application
+        run: |
+          cp .env.testing .env
+          php artisan key:generate
+      - name: Prove competing PostgreSQL posting and reversal requests
+        run: vendor/bin/pest --compact tests/Postgres/LegacyJournalConcurrencyTest.php
