@@ -172,7 +172,10 @@ it('creates a tenant-associated user with hashed credentials and persisted selec
         ->and($created->password)->not->toBe('Synthetic-New-836!')
         ->and($created->hasRole('auditor'))->toBeTrue()
         ->and($created->hasRole('super_admin'))->toBeFalse()
-        ->and($team->users()->whereKey($created->getKey())->exists())->toBeTrue();
+        ->and($created->current_team_id)->toBe($team->getKey());
+    $this->assertDatabaseHas('team_user', [
+        'team_id' => $team->getKey(), 'user_id' => $created->getKey(), 'role' => 'viewer',
+    ]);
 });
 
 it('denies the host administration resource and real admin HTTP routes to ordinary team members', function (): void {

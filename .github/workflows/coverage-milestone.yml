@@ -33,7 +33,8 @@ jobs:
       - name: Pint for the repaired files
         run: >-
           vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
-          app/Filament/Admin/Resources/Users tests/Feature/AdminUserManagementCoverageTest.php
+          app/Filament/Admin/Resources/Users app/Listeners/SendApprovedOutboundPayment.php
+          tests/Feature/AdminUserManagementCoverageTest.php
           tests/Feature/Api/PlaidControllerTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
           tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
           tests/Feature/PlaidSyncIntegrityCoverageTest.php
@@ -45,6 +46,7 @@ jobs:
           tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/Api/PlaidControllerTest.php
           tests/Feature/Api/PlaidWebhookCoverageTest.php tests/Feature/Api/RevolutCoverageIntegrityTest.php
           tests/Feature/PlaidEntryPointIntegrityTest.php tests/Feature/PlaidSyncIntegrityCoverageTest.php
+          tests/Feature/Api/OutboundPaymentApprovalTest.php
   full:
     needs: focused
     runs-on: ubuntu-latest

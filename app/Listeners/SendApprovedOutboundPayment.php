@@ -25,8 +25,9 @@ class SendApprovedOutboundPayment
     {
         $payment = $event->approvable;
 
-        // Only outbound payments; and never re-send one already sent.
-        if (! $payment instanceof OutboundPayment || $payment->status === OutboundPayment::STATUS_SENT) {
+        if (! $payment instanceof OutboundPayment
+            || $payment->approval_status !== 'approved'
+            || $payment->status !== OutboundPayment::STATUS_PENDING_APPROVAL) {
             return;
         }
 
