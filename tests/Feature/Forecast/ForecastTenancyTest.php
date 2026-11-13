@@ -13,6 +13,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class ForecastTenancyTest extends TestCase
@@ -56,5 +57,26 @@ class ForecastTenancyTest extends TestCase
 
         // Must be team B's actuals (500), never team A's (999).
         $this->assertSame([1 => 500.0], $page->result['baseline']['revenue']);
+    }
+
+    public function test_comparison_form_rejects_excessive_periods_and_clears_results_for_a_foreign_scenario(): void
+    {
+        $owner = User::factory()->create();
+        $team = Team::forceCreate(['user_id' => $owner->id, 'name' => 'Owned', 'personal_team' => false]);
+        $foreign = Team::forceCreate(['user_id' => User::factory()->create()->id, 'name' => 'Foreign', 'personal_team' => false]);
+        $scenario = ForecastScenario::create(['team_id' => $team->id, 'name' => 'Owned scenario']);
+        $foreignScenario = ForecastScenario::create(['team_id' => $foreign->id, 'name' => 'Foreign scenario']);
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('app'));
+        Filament::setTenant($team);
+
+        Livewire::test(ForecastComparison::class)
+            ->fillForm(['forecast_scenario_id' => $scenario->id, 'periods' => 121])
+            ->call('generate')->assertHasErrors(['data.periods'])
+            ->set('data.periods', 2)
+            ->call('generate')->assertHasNoErrors()
+            ->assertSee('Net income: baseline vs scenario')
+            ->set('data.forecast_scenario_id', $foreignScenario->id)
+            ->call('generate')->assertSet('result', null);
     }
 }

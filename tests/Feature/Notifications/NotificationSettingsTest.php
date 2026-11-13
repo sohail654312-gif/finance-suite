@@ -13,6 +13,7 @@ use App\Services\TeamManagementService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class NotificationSettingsTest extends TestCase
@@ -74,6 +75,27 @@ class NotificationSettingsTest extends TestCase
         $stranger = User::factory()->create();
         $this->actingAs($stranger->fresh());
         $this->assertFalse(TeamNotificationSettings::canAccess());
+    }
+
+    public function test_owner_can_update_sms_settings_without_rendering_or_retaining_secrets(): void
+    {
+        [$owner, $team] = $this->ownerWithTeam();
+        $team->update(['vonage_key' => 'prior-private-key', 'vonage_secret' => 'prior-private-secret']);
+        $this->actingAs($owner);
+        $this->useAppPanelTenant($team);
+
+        Livewire::test(TeamNotificationSettings::class)
+            ->assertOk()
+            ->assertDontSee('prior-private-secret')
+            ->fillForm(['vonage_key' => 'new-private-key', 'vonage_secret' => '', 'vonage_from' => 'Finance'])
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('data', ['vonage_from' => 'Finance'])
+            ->assertDontSee('new-private-key');
+
+        $this->assertSame('new-private-key', $team->fresh()->vonage_key);
+        $this->assertSame('prior-private-secret', $team->fresh()->vonage_secret);
+        $this->assertSame('Finance', $team->fresh()->vonage_from);
     }
 
     public function test_saving_personal_preferences_upserts_a_single_row(): void
