@@ -40,7 +40,7 @@ class SendPaymentReminders extends Command
 
             foreach ($invoices->lazyById() as $invoice) {
                 $customer = $invoice->customer;
-                if ($customer === null || (int) $customer->team_id !== (int) $setting->team_id || ! $customer->email) {
+                if ($customer === null || (int) $customer->team_id !== (int) $setting->team_id || ! $customer->customer_email) {
                     continue;
                 }
                 $customer->notify(new PaymentReminderNotification($invoice));
