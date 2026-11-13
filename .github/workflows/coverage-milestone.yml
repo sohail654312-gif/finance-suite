@@ -33,11 +33,13 @@ jobs:
       - name: Pint for the repaired files
         run: >-
           vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
+          app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
           app/Filament/Admin/Resources/Users app/Listeners/SendApprovedOutboundPayment.php
           tests/Feature/AdminUserManagementCoverageTest.php
           tests/Feature/Api/PlaidControllerTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
           tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
           tests/Feature/PlaidSyncIntegrityCoverageTest.php
+          tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Verify repaired administration and bank integration regressions
@@ -47,6 +49,7 @@ jobs:
           tests/Feature/Api/PlaidWebhookCoverageTest.php tests/Feature/Api/RevolutCoverageIntegrityTest.php
           tests/Feature/PlaidEntryPointIntegrityTest.php tests/Feature/PlaidSyncIntegrityCoverageTest.php
           tests/Feature/Api/OutboundPaymentApprovalTest.php
+          tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
   full:
     needs: focused
     runs-on: ubuntu-latest
