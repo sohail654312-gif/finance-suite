@@ -8,6 +8,9 @@ use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property int|null $team_id
+ */
 class ReminderSetting extends Model
 {
     use HasFactory;
