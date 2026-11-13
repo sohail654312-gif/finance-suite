@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Filament\App\Resources\BankConnections\Pages\ListBankConnections;
+use App\Filament\App\Resources\BankConnections\Pages\ViewBankConnection;
 use App\Models\BankConnection;
 use App\Models\User;
 use App\Services\PlaidService;
@@ -96,5 +97,33 @@ it('preserves bank authorization and credentials when provider does not confirm 
         ->and($connection->plaid_institution_id)->toBe('institution-retained')
         ->and($connection->plaid_access_token)->toBe('synthetic-retained-token')
         ->and($connection->plaid_cursor)->toBe('retained-cursor');
+    Http::assertNothingSent();
+});
+
+it('rejects a forged record id when a bank connection belongs to a different tenant', function (): void {
+    $owner = User::factory()->create();
+    $teams = app(TeamManagementService::class);
+    $team = $teams->createPersonalTeamForUser($owner);
+    $foreignOwner = User::factory()->create();
+    $foreignTeam = $teams->createPersonalTeamForUser($foreignOwner);
+    $foreignConnection = BankConnection::factory()->create([
+        'user_id' => $foreignOwner->id,
+        'team_id' => $foreignTeam->id,
+        'bank_id' => 'plaid',
+        'status' => 'active',
+        'plaid_item_id' => 'foreign-only-item',
+        'plaid_access_token' => 'synthetic-other-tenant-token',
+    ]);
+
+    $this->actingAs($owner->fresh());
+    Filament::setCurrentPanel(Filament::getPanel('app'));
+    Filament::setTenant($team);
+    Http::preventStrayRequests();
+
+    Livewire::test(ViewBankConnection::class, ['record' => $foreignConnection->getRouteKey()])
+        ->assertNotFound();
+
+    expect($foreignConnection->fresh()->plaid_item_id)->toBe('foreign-only-item')
+        ->and($foreignConnection->fresh()->plaid_access_token)->toBe('synthetic-other-tenant-token');
     Http::assertNothingSent();
 });
