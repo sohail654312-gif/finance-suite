@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: 05e6201a8b68833e975b6891252a08025b3c83c2
+          ref: c7a05a5c55dad483a67b139157a28be0c660f3ae
           persist-credentials: false
       - name: Assert immutable PR29 source
-        run: test "$(git rev-parse HEAD)" = "05e6201a8b68833e975b6891252a08025b3c83c2"
+        run: test "$(git rev-parse HEAD)" = "c7a05a5c55dad483a67b139157a28be0c660f3ae"
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
         with:
           php-version: '8.5'
