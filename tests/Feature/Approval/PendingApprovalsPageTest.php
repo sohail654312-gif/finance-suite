@@ -78,7 +78,8 @@ class PendingApprovalsPageTest extends TestCase
             ->assertCanSeeTableRecords([$mine])
             ->assertCanNotSeeTableRecords([$foreign])
             ->callAction(TestAction::make('reject')->table($mine), data: ['reason' => 'Supplier credit missing'])
-            ->assertHasNoActionErrors()
+            ->assertHasNoActionErrors();
+        Livewire::test(PendingApprovals::class)
             ->assertCanNotSeeTableRecords([$mine, $foreign]);
 
         $this->assertSame('rejected', $mine->fresh()->status);

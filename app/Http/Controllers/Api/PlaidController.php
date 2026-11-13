@@ -405,8 +405,8 @@ class PlaidController extends Controller
         if ($actor === null) {
             return null;
         }
-        $team = $actor->currentTeam;
-        if (! $team instanceof Team || ! $actor->belongsToTeam($team)) {
+        $team = Team::query()->find($actor->current_team_id);
+        if ($team === null || ! $actor->belongsToTeam($team)) {
             return null;
         }
         if ($actor->ownsTeam($team)) {

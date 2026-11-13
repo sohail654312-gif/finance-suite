@@ -48,7 +48,7 @@ jobs:
           tests/Feature/Document/DocumentServiceTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Verify repaired administration and bank integration regressions
+      - name: Verify administration, banking, billing and document regressions
         run: >-
           php artisan test --compact
           tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/Api/PlaidControllerTest.php

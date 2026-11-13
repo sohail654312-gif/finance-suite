@@ -29,6 +29,7 @@ return [
      * a custom defined path when running the command.
      */
     'migrations_paths' => [
+        database_path('settings'),
         base_path('modules/settings/database/settings'),
     ],
 
