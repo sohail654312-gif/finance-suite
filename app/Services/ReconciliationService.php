@@ -33,6 +33,7 @@ class ReconciliationService
     public function reconcile(BankStatement $bankStatement): array
     {
         $transactions = Transaction::where('account_id', $bankStatement->account_id)
+            ->where('team_id', $bankStatement->team_id)
             ->whereBetween('transaction_date', [
                 $bankStatement->statement_date->startOfMonth(),
                 $bankStatement->statement_date->endOfMonth(),
@@ -104,6 +105,7 @@ class ReconciliationService
     {
         // Try exact match first
         $exactMatch = $bankStatement->transactions()
+            ->where('team_id', $bankStatement->team_id)
             ->where('transaction_date', $transaction->transaction_date)
             ->where('amount', $transaction->amount)
             ->exists();
@@ -115,6 +117,7 @@ class ReconciliationService
         // Try fuzzy match within 2 days and exact amount
         $matchDate = Carbon::parse((string) $transaction->transaction_date);
         $fuzzyMatch = $bankStatement->transactions()
+            ->where('team_id', $bankStatement->team_id)
             ->whereBetween('transaction_date', [
                 $matchDate->copy()->subDays(2),
                 $matchDate->copy()->addDays(2),

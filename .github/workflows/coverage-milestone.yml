@@ -35,6 +35,8 @@ jobs:
           vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
           app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
           app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
+          app/Services/ReconciliationService.php app/Filament/App/Resources/BankStatements
+          app/Filament/App/Resources/Invoices/RelationManagers/DocumentsRelationManager.php
           app/Filament/App/Resources/BankConnections/BankConnectionResource.php
           app/Filament/App/Resources/BankConnections/Pages/ViewBankConnection.php
           app/Filament/Admin/Resources/Users app/Listeners/SendApprovedOutboundPayment.php
@@ -46,6 +48,8 @@ jobs:
           tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
           tests/Feature/BankConnectionResourceTest.php
           tests/Feature/Document/DocumentServiceTest.php
+          tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
+          tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Verify administration, banking, billing and document regressions
@@ -59,6 +63,8 @@ jobs:
           tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
           tests/Feature/BankConnectionResourceTest.php
           tests/Feature/Document/DocumentServiceTest.php
+          tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
+          tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
   full:
     needs: focused
     runs-on: ubuntu-latest

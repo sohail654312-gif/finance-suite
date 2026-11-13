@@ -7,6 +7,7 @@ namespace App\Filament\App\Resources\BankStatements;
 use App\Filament\App\Resources\BankStatements\Pages\CreateBankStatement;
 use App\Filament\App\Resources\BankStatements\Pages\EditBankStatement;
 use App\Filament\App\Resources\BankStatements\Pages\ListBankStatements;
+use App\Models\Account;
 use App\Models\BankStatement;
 use App\Modules\Reconciliation\ReconciliationModule;
 use App\Notifications\ImportFailedNotification;
@@ -18,6 +19,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
@@ -33,11 +35,16 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class BankStatementResource extends Resource
 {
     #[\Override]
     protected static ?string $model = BankStatement::class;
+
+    protected static bool $isScopedToTenant = false;
 
     #[\Override]
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-text';
@@ -47,6 +54,12 @@ class BankStatementResource extends Resource
 
     #[\Override]
     protected static ?int $navigationSort = 2;
+
+    #[\Override]
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('bank_statements.team_id', Filament::getTenant()?->getKey() ?? -1);
+    }
 
     #[\Override]
     public static function form(Schema $schema): Schema
@@ -61,7 +74,8 @@ class BankStatementResource extends Resource
                             ->helperText('The date of the bank statement'),
 
                         Select::make('account_id')
-                            ->relationship('account', 'account_name')
+                            ->relationship('account', 'account_name', modifyQueryUsing: fn (Builder $query): Builder => $query->where('accounts.team_id', Filament::getTenant()?->getKey() ?? -1))
+                            ->rule(fn () => Rule::exists(Account::class, 'id')->where('team_id', Filament::getTenant()?->getKey() ?? -1))
                             ->label('Bank Account')
                             ->required()
                             ->searchable()
@@ -96,17 +110,6 @@ class BankStatementResource extends Resource
                             ->helperText('Ending balance on the statement'),
                     ])->columns(3),
 
-                Section::make('Import Transactions')
-                    ->schema([
-                        FileUpload::make('statement_file')
-                            ->label('Import Bank Statement File')
-                            ->acceptedFileTypes(['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/x-ofx'])
-                            ->maxSize(5120)
-                            ->visible(fn ($livewire): bool => $livewire instanceof CreateBankStatement)
-                            ->helperText('Upload a CSV, Excel, or OFX file with your bank statement transactions'),
-                    ])
-                    ->visible(fn ($livewire): bool => $livewire instanceof CreateBankStatement)
-                    ->collapsible(),
             ]);
     }
 
@@ -192,23 +195,25 @@ class BankStatementResource extends Resource
                     ->form([
                         FileUpload::make('statement_file')
                             ->label('Statement File')
-                            ->acceptedFileTypes(['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/x-ofx'])
+                            ->disk('local')
+                            ->directory('statement-imports')
+                            ->preventFilePathTampering()
+                            ->acceptedFileTypes(['text/csv', 'application/x-ofx'])
                             ->maxSize(5120)
                             ->required()
-                            ->helperText('Upload CSV, Excel, or OFX file'),
+                            ->helperText('Upload a CSV or OFX file'),
                     ])
                     ->action(function (BankStatement $record, array $data): void {
                         $importService = app(BankStatementImportService::class);
 
                         if (isset($data['statement_file'])) {
-                            $path = storage_path('app/public/'.$data['statement_file']);
+                            $path = Storage::disk('local')->path($data['statement_file']);
                             $extension = pathinfo($path, PATHINFO_EXTENSION);
 
                             try {
                                 $transactions = match (strtolower($extension)) {
                                     'csv' => $importService->importFromCsv($path, $record),
                                     'ofx' => $importService->importFromOfx($path, $record),
-                                    'xls', 'xlsx' => $importService->importFromCsv($path, $record), // Excel can be converted to CSV
                                     default => throw new Exception('Unsupported file format')
                                 };
 
@@ -225,6 +230,8 @@ class BankStatementResource extends Resource
                                     ->send();
 
                                 auth()->user()?->notify(new ImportFailedNotification($record, $e->getMessage()));
+                            } finally {
+                                Storage::disk('local')->delete($data['statement_file']);
                             }
                         }
                     }),
