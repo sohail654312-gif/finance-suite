@@ -1,0 +1,40 @@
+name: Verify PR28 report validation correction
+on:
+  push:
+    branches:
+      - finance-suite/verify-pr28-3c441539-20261113
+permissions:
+  contents: read
+
+jobs:
+  exact-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable PR28 candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 3c441539f096044a4ff7f4a82860656bb406ae90
+          persist-credentials: false
+      - name: Prove exact PR28 source SHA
+        run: test "$(git rev-parse HEAD)" = "3c441539f096044a4ff7f4a82860656bb406ae90"
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install exact lock and strict audit
+        run: |
+          composer validate --strict
+          composer audit --locked
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Pint changed application and regression paths
+        run: vendor/bin/pint --test app/Filament/App/Pages/ConsolidatedReports.php app/Filament/App/Pages/ForecastComparison.php tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/Forecast/ForecastTenancyTest.php
+      - name: Unchanged PHPStan strictness
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+      - name: Repeat both failing report regression suites
+        run: php artisan test --compact tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/Forecast/ForecastTenancyTest.php
