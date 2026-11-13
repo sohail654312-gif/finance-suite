@@ -178,7 +178,7 @@ class BankConnectionResource extends Resource
                     ->label('Sync Transactions')
                     ->icon('heroicon-o-arrow-path')
                     ->color('primary')
-                    ->visible(fn (BankConnection $record): bool => $record->plaid_item_id !== null)
+                    ->visible(fn (BankConnection $record): bool => $record->status === 'active' && $record->plaid_item_id !== null)
                     ->requiresConfirmation()
                     ->action(function (BankConnection $record): void {
                         try {

@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankAccountBalance;
 use App\Models\BankConnection;
+use App\Models\Team;
+use App\Models\User;
 use App\Services\PlaidService;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -28,6 +30,11 @@ class PlaidController extends Controller
      */
     public function createLinkToken(Request $request): JsonResponse
     {
+        $team = $this->selectedTeam($request, accounting: true);
+        if ($team === null) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
         try {
             $user = $request->user();
             $language = $request->input('language', 'en');
@@ -40,7 +47,7 @@ class PlaidController extends Controller
                 $connection = BankConnection::find($connectionId);
 
                 // Verify team ownership (connections are team-shared)
-                if (! $connection || $connection->team_id !== ($user->current_team_id ?? -1)) {
+                if (! $connection || (int) $connection->team_id !== (int) $team->getKey()) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Connection not found or unauthorized',
@@ -90,6 +97,11 @@ class PlaidController extends Controller
             ], 422);
         }
 
+        $team = $this->selectedTeam($request, accounting: true);
+        if ($team === null) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
         DB::beginTransaction();
         try {
             $user = $request->user();
@@ -105,7 +117,7 @@ class PlaidController extends Controller
             // Create bank connection
             $connection = BankConnection::create([
                 'user_id' => $user->id,
-                'team_id' => $user->current_team_id,
+                'team_id' => $team->getKey(),
                 'bank_id' => $request->institution_id,
                 'institution_name' => $request->institution_name,
                 'plaid_access_token' => $tokenData['access_token'],
@@ -148,7 +160,7 @@ class PlaidController extends Controller
         try {
             $user = $request->user();
 
-            $connections = BankConnection::where('team_id', $user->current_team_id ?? -1)
+            $connections = BankConnection::where('team_id', $this->selectedTeam($request)?->getKey() ?? -1)
                 ->select([
                     'id',
                     'institution_name',
@@ -184,7 +196,7 @@ class PlaidController extends Controller
     public function syncTransactions(Request $request, BankConnection $connection): JsonResponse
     {
         try {
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ((int) $connection->team_id !== (int) ($this->selectedTeam($request, accounting: true)?->getKey() ?? -1)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
             }
             if ($connection->status !== 'active') {
@@ -219,7 +231,7 @@ class PlaidController extends Controller
     {
         try {
             // Verify team ownership (connections are team-shared)
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ((int) $connection->team_id !== (int) ($this->selectedTeam($request, accounting: true)?->getKey() ?? -1)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -267,7 +279,7 @@ class PlaidController extends Controller
     {
         try {
             // Verify team ownership (connections are team-shared)
-            if ($connection->team_id !== ($request->user()->current_team_id ?? -1)) {
+            if ((int) $connection->team_id !== (int) ($this->selectedTeam($request, accounting: true)?->getKey() ?? -1)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -384,6 +396,29 @@ class PlaidController extends Controller
         }
 
         return $account;
+    }
+
+    private function selectedTeam(Request $request, bool $accounting = false): ?Team
+    {
+        $actor = $request->user();
+        $actor = $actor instanceof User ? $actor->fresh() : null;
+        if ($actor === null) {
+            return null;
+        }
+        $team = $actor->currentTeam;
+        if (! $team instanceof Team || ! $actor->belongsToTeam($team)) {
+            return null;
+        }
+        if ($actor->ownsTeam($team)) {
+            return $team;
+        }
+
+        $membership = $team->users()->whereKey($actor->getKey())->wherePivot('status', 'active');
+        if ($accounting) {
+            $membership->wherePivotIn('role', ['admin', 'accountant']);
+        }
+
+        return $membership->exists() ? $team : null;
     }
 
     /**

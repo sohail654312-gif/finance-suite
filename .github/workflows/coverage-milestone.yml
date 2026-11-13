@@ -34,12 +34,18 @@ jobs:
         run: >-
           vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
           app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
+          app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
+          app/Filament/App/Resources/BankConnections/BankConnectionResource.php
+          app/Filament/App/Resources/BankConnections/Pages/ViewBankConnection.php
           app/Filament/Admin/Resources/Users app/Listeners/SendApprovedOutboundPayment.php
           tests/Feature/AdminUserManagementCoverageTest.php
           tests/Feature/Api/PlaidControllerTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
           tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
           tests/Feature/PlaidSyncIntegrityCoverageTest.php
           tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
+          tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
+          tests/Feature/BankConnectionResourceTest.php
+          tests/Feature/Document/DocumentServiceTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Verify repaired administration and bank integration regressions
@@ -50,6 +56,9 @@ jobs:
           tests/Feature/PlaidEntryPointIntegrityTest.php tests/Feature/PlaidSyncIntegrityCoverageTest.php
           tests/Feature/Api/OutboundPaymentApprovalTest.php
           tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
+          tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
+          tests/Feature/BankConnectionResourceTest.php
+          tests/Feature/Document/DocumentServiceTest.php
   full:
     needs: focused
     runs-on: ubuntu-latest
@@ -133,3 +142,5 @@ jobs:
           php artisan key:generate
       - name: Prove competing PostgreSQL posting and reversal requests
         run: vendor/bin/pest --compact tests/Postgres/LegacyJournalConcurrencyTest.php
+      - name: Verify document versioning on PostgreSQL
+        run: vendor/bin/pest --compact tests/Postgres/DocumentVersioningTest.php

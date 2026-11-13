@@ -153,6 +153,27 @@ class PlaidControllerTest extends TestCase
             ->assertStatus(400)->assertJsonPath('success', false);
     }
 
+    public function test_viewer_cannot_link_sync_or_disconnect_a_bank(): void
+    {
+        $team = $this->user->currentTeam;
+        $viewer = User::factory()->create();
+        $team->users()->attach($viewer->getKey(), ['role' => 'viewer']);
+        $viewer->switchTeam($team);
+        $connection = BankConnection::factory()->create(['team_id' => $team->getKey(), 'status' => 'active']);
+        Http::preventStrayRequests();
+
+        $this->actingAs($viewer)->postJson('/api/plaid/create-link-token')->assertForbidden();
+        $this->postJson('/api/plaid/store-connection', [
+            'public_token' => 'synthetic-public-token', 'institution_id' => 'ins_123',
+            'institution_name' => 'Synthetic bank', 'accounts' => [['id' => 'acc_1']],
+        ])->assertForbidden();
+        $this->postJson("/api/plaid/connections/{$connection->id}/sync")->assertForbidden();
+        $this->getJson("/api/plaid/connections/{$connection->id}/balances")->assertForbidden();
+        $this->deleteJson("/api/plaid/connections/{$connection->id}")->assertForbidden();
+        $this->assertSame('active', $connection->fresh()->status);
+        Http::assertNothingSent();
+    }
+
     public function test_list_connections_returns_team_connections(): void
     {
         BankConnection::factory()->count(3)->create([

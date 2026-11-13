@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Filament\Admin\Pages\ManageGeneralSettings;
 use App\Filament\Admin\Resources\Users\Pages\CreateUser;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\Pages\ListUsers;
@@ -10,6 +11,7 @@ use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\TeamManagementService;
+use App\Settings\GeneralSettings;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Hash;
 use Liberu\Foundation\RolesPermissions\Models\Role;
@@ -185,4 +187,27 @@ it('denies the host administration resource and real admin HTTP routes to ordina
 
     $this->get(UserResource::getUrl('edit', ['record' => $member->getRouteKey()], panel: 'admin', tenant: $team))
         ->assertForbidden();
+});
+
+it('validates and persists the host general settings through the admin form', function (): void {
+    adminUserCoverageFixture();
+
+    Livewire::test(ManageGeneralSettings::class)
+        ->assertOk()
+        ->set('data.site_email', 'not-an-email')
+        ->call('save')
+        ->assertHasFormErrors(['site_email'])
+        ->set('data.site_name', 'Verified Finance')
+        ->set('data.site_email', 'finance@example.test')
+        ->set('data.facebook_url', 'https://example.test/finance')
+        ->set('data.footer_copyright', 'Finance Team')
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    app()->forgetInstance(GeneralSettings::class);
+    $settings = app(GeneralSettings::class);
+    expect($settings->site_name)->toBe('Verified Finance')
+        ->and($settings->site_email)->toBe('finance@example.test')
+        ->and($settings->facebook_url)->toBe('https://example.test/finance')
+        ->and($settings->footer_copyright)->toBe('Finance Team');
 });

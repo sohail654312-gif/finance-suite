@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\PremiumCatalog;
 use App\Models\User;
+use App\Services\SaasPremiumBillingService;
 use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as ClientRequest;
@@ -109,4 +110,32 @@ it('does not expose the premium billing surface while Premium is disabled', func
     [$user] = premiumTeam();
 
     $this->actingAs($user)->get(route('billing.premium'))->assertNotFound();
+});
+
+it('only applies a billing event to the team that owns the Stripe customer', function (): void {
+    config()->set('premium.webhook_secret', 'whsec_synthetic');
+    [, $team] = premiumTeam();
+    [, $otherTeam] = premiumTeam();
+    $team->forceFill(['stripe_customer_id' => 'cus_owner', 'premium_status' => 'active'])->save();
+    $otherTeam->forceFill(['stripe_customer_id' => 'cus_other', 'premium_status' => 'active'])->save();
+
+    $event = [
+        'id' => 'evt_failed', 'type' => 'invoice.payment_failed',
+        'data' => ['object' => ['customer' => 'cus_owner', 'metadata' => ['team_id' => (string) $otherTeam->getKey()]]],
+    ];
+    $send = function (array $event): void {
+        $timestamp = time();
+        $payload = json_encode($event, JSON_THROW_ON_ERROR);
+        $signature = 't='.$timestamp.',v1='.hash_hmac('sha256', $timestamp.'.'.$payload, 'whsec_synthetic');
+        app(SaasPremiumBillingService::class)->handleWebhook($payload, $signature);
+    };
+    $send($event);
+    expect($team->fresh()->premium_status)->toBe('active')
+        ->and($otherTeam->fresh()->premium_status)->toBe('active');
+
+    unset($event['data']['object']['metadata']);
+    $send($event);
+    expect($team->fresh()->premium_status)->toBe('past_due')
+        ->and($team->fresh()->premium_last_event_id)->toBe('evt_failed')
+        ->and($otherTeam->fresh()->premium_status)->toBe('active');
 });

@@ -1,6 +1,6 @@
 # Finance coverage and security milestone — 6 November 2026
 
-Status: implementation and cloud verification in progress. No release acceptance, merge, deployment, live customer access, or paid infrastructure is authorized.
+The 85% milestone passed on 12 November 2026. Release acceptance remains open.
 
 ## Source and evidence
 
@@ -25,7 +25,7 @@ Ranked from the historical Clover statement inventory. Counts are opportunities,
 | HMRC authentication and PAYE/CT models | 162 | Persisted tenant token isolation, expiry/malformed grants, denied cross-company calculations and explicit absent statutory-data contracts |
 | Host administrator user pages/forms/table | 223 | Actual permitted/denied Livewire behavior, password preservation/hashing, validated identity, role assignments, filters and secret redaction |
 
-## Implemented corrections awaiting cloud proof
+## Implemented corrections
 
 Provider payment references cannot match an arbitrary unsynced local invoice when the provider reference is absent. Quote/credit batches roll back local partial writes; provider fetch/token refresh occurs before the local transaction.
 
@@ -41,4 +41,8 @@ External module roots and class sources must remain inside canonical configured 
 
 Focused coverage is diagnostic and is not release acceptance. Final full verification retains `--coverage --min=100 --coverage-clover=coverage.xml` and independent `scripts/verify-host-coverage.php`; existing required CI checks and source scope are unchanged. No excluded source, deleted failing test, generated empty invocation coverage, or lowered threshold is permitted.
 
-Final exact counts, per-file deltas, source SHA, full-suite assertions, and PostgreSQL concurrency results remain pending. The 85% and 90% targets remain unverified.
+The full run at `0141869002b0589cf37e333a537b52af07b1e596` passed 1,806 tests with 7,721 assertions and no skips. PostgreSQL concurrency passed four tests with 53 assertions. Clover measured 12,615 of 14,673 executable lines (85.9742%), up 10.0670 percentage points and 1,654 covered lines from the fresh baseline. The 90% stretch target and the 100% gate remained open. [Verification run](https://github.com/sohail654312-gif/finance-suite/actions/runs/43179180152) · [Clover and JUnit reports](https://github.com/sohail654312-gif/finance-suite/actions/runs/43179180152/artifacts/13925369697)
+
+Multi-leg Revolut FX requires a durable mapping from the provider's two account legs to local bank accounts. Acceptance needs paired, idempotent imports that retain each leg's identity, currency, amount, and fee, plus reconciliation against both account balances. [Revolut transaction leg specification](https://developer.revolut.com/docs/guides/manage-accounts/webhooks/about-webhooks)
+
+HMRC PAYE requires persisted per-employee pay and statutory deductions tied to the correct company and payday. Corporation tax requires taxable profits and authoritative company data, including associated companies and period adjustments where relevant. The repository currently lacks those inputs for the guarded calculation paths. [HMRC PAYE reporting fields](https://www.gov.uk/guidance/what-payroll-information-to-report-to-hmrc) · [HMRC Company Tax Return guide](https://www.gov.uk/guidance/the-company-tax-return-guide)

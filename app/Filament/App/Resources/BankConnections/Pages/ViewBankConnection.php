@@ -32,7 +32,7 @@ class ViewBankConnection extends ViewRecord
                 ->label('Sync Transactions')
                 ->icon('heroicon-o-arrow-path')
                 ->color('primary')
-                ->visible(fn (): bool => $this->record->plaid_item_id !== null)
+                ->visible(fn (): bool => $this->record->status === 'active' && $this->record->plaid_item_id !== null)
                 ->action(function (): void {
                     try {
                         $plaidService = app(PlaidService::class);
