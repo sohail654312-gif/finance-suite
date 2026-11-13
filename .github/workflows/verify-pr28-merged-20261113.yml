@@ -1,0 +1,129 @@
+name: Verify PR28 merged candidate exactly
+on:
+  push:
+    branches:
+      - finance-suite/verify-pr28-merged-20261113
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 17168d45d20b8f58fe6bf6b5c6dfac6f03eec831
+          persist-credentials: false
+      - name: Assert merged exact source
+        run: test "$(git rev-parse HEAD)" = "17168d45d20b8f58fe6bf6b5c6dfac6f03eec831"
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Strict Composer validation and locked security audit
+        run: |
+          composer validate --strict
+          composer audit --locked
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Pint on changed reporting paths and test fixtures
+        run: vendor/bin/pint --test app/Filament/App/Pages/ConsolidatedReports.php app/Filament/App/Pages/ForecastComparison.php tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/Forecast/ForecastTenancyTest.php
+      - name: Strict PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+      - name: Reporting validation and tenant controls
+        run: php artisan test --compact tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/PaymentReminderBoundaryTest.php
+
+  full:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 17168d45d20b8f58fe6bf6b5c6dfac6f03eec831
+          persist-credentials: false
+      - name: Assert merged exact source
+        run: test "$(git rev-parse HEAD)" = "17168d45d20b8f58fe6bf6b5c6dfac6f03eec831"
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: xdebug
+      - name: Strict Composer validation and locked security audit
+        run: |
+          composer validate --strict
+          composer audit --locked
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Full tests and original mandatory 100-percent coverage gate
+        id: full_tests
+        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml --log-junit=junit.xml
+      - name: Independent host Clover verification (unchanged)
+        if: always() && steps.full_tests.outcome != 'skipped'
+        run: php scripts/verify-host-coverage.php coverage.xml
+      - name: Preserve test and Clover evidence
+        if: always() && hashFiles('coverage.xml') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr28-merged-clover
+          path: |
+            coverage.xml
+            junit.xml
+          retention-days: 30
+
+  postgres:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: finance_suite_test
+          POSTGRES_USER: finance_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_DATABASE: finance_suite_test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: finance_test
+      DB_PASSWORD: synthetic-ci-only
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 17168d45d20b8f58fe6bf6b5c6dfac6f03eec831
+          persist-credentials: false
+      - name: Assert merged exact source
+        run: test "$(git rev-parse HEAD)" = "17168d45d20b8f58fe6bf6b5c6dfac6f03eec831"
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_pgsql, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Strict Composer validation and locked security audit
+        run: |
+          composer validate --strict
+          composer audit --locked
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          cp .env.testing .env
+          php artisan key:generate
+      - name: Concurrent PostgreSQL journal protection
+        run: vendor/bin/pest --compact tests/Postgres/LegacyJournalConcurrencyTest.php
+      - name: PostgreSQL document versioning
+        run: vendor/bin/pest --compact tests/Postgres/DocumentVersioningTest.php
