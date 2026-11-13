@@ -7,7 +7,6 @@ namespace App\Console\Commands;
 use App\Models\Invoice;
 use App\Models\ReminderSetting;
 use App\Notifications\PaymentReminderNotification;
-use Carbon\Carbon;
 use Illuminate\Console\Command;
 
 class SendPaymentReminders extends Command
@@ -20,25 +19,31 @@ class SendPaymentReminders extends Command
 
     public function handle(): void
     {
-        $settings = ReminderSetting::first();
+        $settings = ReminderSetting::query()->whereNotNull('team_id')->orderBy('id')->get()->unique('team_id')->filter->is_active;
 
-        if (! $settings || ! $settings->is_active) {
+        if ($settings->isEmpty()) {
             $this->info('Reminder system is not active');
 
             return;
         }
 
-        $overdueInvoices = Invoice::where('payment_status', 'pending')
-            ->where('invoice_date', '<=', Carbon::now()->subDays($settings->days_before_reminder))
-            ->where(function ($query) use ($settings): void {
-                $query->where('reminders_sent', '<', $settings->max_reminders)
-                    ->orWhereNull('last_reminder_sent_at');
-            })
-            ->get();
+        foreach ($settings as $setting) {
+            $invoices = Invoice::query()
+                ->where('team_id', $setting->team_id)
+                ->where('payment_status', 'pending')
+                ->whereDate('due_date', '<', today())
+                ->whereDate('invoice_date', '<=', today()->subDays($setting->days_before_reminder))
+                ->where('reminders_sent', '<', $setting->max_reminders)
+                ->where(fn ($query) => $query->whereNull('last_reminder_sent_at')
+                    ->orWhere('last_reminder_sent_at', '<=', now()->subDays($setting->reminder_frequency_days)))
+                ->with('customer');
 
-        foreach ($overdueInvoices as $invoice) {
-            if ($invoice->customer && $invoice->customer->email && (! $invoice->last_reminder_sent_at || Carbon::parse($invoice->last_reminder_sent_at)->addDays($settings->reminder_frequency_days)->isPast())) {
-                $invoice->customer->notify(new PaymentReminderNotification($invoice));
+            foreach ($invoices->lazyById() as $invoice) {
+                $customer = $invoice->customer;
+                if ($customer === null || (int) $customer->team_id !== (int) $setting->team_id || ! $customer->email) {
+                    continue;
+                }
+                $customer->notify(new PaymentReminderNotification($invoice));
                 $invoice->reminders_sent++;
                 $invoice->last_reminder_sent_at = now();
                 $invoice->save();

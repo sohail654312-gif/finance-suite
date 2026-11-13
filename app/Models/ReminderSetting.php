@@ -19,6 +19,7 @@ class ReminderSetting extends Model
         'reminder_frequency_days',
         'max_reminders',
         'is_active',
+        'team_id',
     ];
 
     #[\Override]
