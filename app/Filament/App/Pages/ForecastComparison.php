@@ -92,6 +92,8 @@ class ForecastComparison extends Page
 
     public function generate(): void
     {
+        // Discard errors from the previous attempt; this submission is revalidated below.
+        $this->resetValidation();
         $this->result = null;
         $teamId = $this->selectedTeamId();
         if ($teamId === null) {
