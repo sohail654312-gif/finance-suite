@@ -1,4 +1,4 @@
-name: Minimum Symfony security proposal
+name: Minimum phpseclib security proposal
 on:
   push:
     branches: [finance-suite/coverage-security-85-90-20261106]
@@ -20,12 +20,10 @@ jobs:
           extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
           coverage: none
       - run: composer validate --strict
-      - name: Resolve only seven advisory-affected packages and necessary companions
+      - name: Resolve the advisory-affected package
         run: >-
-          composer update symfony/html-sanitizer:8.1.11 symfony/http-client:8.1.11
-          symfony/http-foundation:8.1.11 symfony/http-kernel:8.1.11
-          symfony/routing:8.1.11 symfony/serializer:8.1.11 symfony/yaml:8.1.11
-          --with-all-dependencies --minimal-changes --no-install --no-scripts --no-interaction --no-progress
+          composer update phpseclib/phpseclib:3.0.58
+          --minimal-changes --no-install --no-scripts --no-interaction --no-progress
       - name: Verify genuine lock and clean audit
         run: |
           composer validate --strict
@@ -35,7 +33,7 @@ jobs:
           sha256sum composer.lock > composer.lock.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: symfony-minimum-patched-lock
+          name: phpseclib-minimum-patched-lock
           path: |
             composer.lock
             composer.lock.sha256
