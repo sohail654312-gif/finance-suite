@@ -137,6 +137,24 @@ class NotificationSettingsTest extends TestCase
         $this->assertFalse($pref->sms_enabled);
     }
 
+    public function test_notification_form_loads_and_saves_preferences_for_the_signed_in_user_only(): void
+    {
+        [$user, $team] = $this->ownerWithTeam();
+        $other = User::factory()->create();
+        UserNotificationPreference::create(['user_id' => $other->id, 'phone' => '+15550101010']);
+        $this->actingAs($user);
+        $this->useAppPanelTenant($team);
+
+        Livewire::test(NotificationSettings::class)
+            ->assertSet('data.mail_enabled', true)
+            ->assertSet('data.sms_enabled', false)
+            ->fillForm(['phone' => '+15550101020', 'mail_enabled' => false, 'database_enabled' => true, 'sms_enabled' => true])
+            ->call('save')
+            ->assertHasNoErrors();
+        $this->assertDatabaseHas('user_notification_preferences', ['user_id' => $user->id, 'phone' => '+15550101020', 'sms_enabled' => true]);
+        $this->assertDatabaseHas('user_notification_preferences', ['user_id' => $other->id, 'phone' => '+15550101010']);
+    }
+
     /** @return array{0: User, 1: Team} */
     private function ownerWithTeam(): array
     {

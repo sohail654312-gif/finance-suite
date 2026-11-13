@@ -37,6 +37,7 @@ jobs:
           app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
           app/Services/ReconciliationService.php app/Filament/App/Resources/BankStatements
           app/Filament/App/Pages/ForecastComparison.php app/Filament/App/Pages/TeamNotificationSettings.php
+          app/Filament/App/Pages/ConsolidatedReports.php app/Services/MenuService.php
           app/Filament/App/Resources/Invoices/RelationManagers/DocumentsRelationManager.php
           app/Filament/App/Resources/BankConnections/BankConnectionResource.php
           app/Filament/App/Resources/BankConnections/Pages/ViewBankConnection.php
@@ -52,6 +53,7 @@ jobs:
           tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
           tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
           tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/Notifications/NotificationSettingsTest.php
+          tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/PublicNavigationTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Verify administration, banking, billing and document regressions
@@ -68,6 +70,7 @@ jobs:
           tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
           tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
           tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/Notifications/NotificationSettingsTest.php
+          tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/PublicNavigationTest.php
   full:
     needs: focused
     runs-on: ubuntu-latest

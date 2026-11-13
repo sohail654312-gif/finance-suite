@@ -51,10 +51,13 @@ class MenuService
     // the user-supplied name with e() and reject dangerous URL schemes here.
     private function safeUrl(?string $url): string
     {
-        $url = (string) $url;
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $url = trim((string) $url);
+        if ($url === '' || preg_match('/[\x00-\x1F\x7F]/', $url)) {
+            return '#';
+        }
 
-        if (in_array($scheme, ['javascript', 'data', 'vbscript'], true)) {
+        $parts = parse_url($url);
+        if ($parts === false || (isset($parts['scheme']) && ! in_array(strtolower($parts['scheme']), ['http', 'https', 'mailto', 'tel'], true))) {
             return '#';
         }
 
