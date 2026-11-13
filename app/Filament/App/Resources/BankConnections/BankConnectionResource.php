@@ -228,7 +228,9 @@ class BankConnectionResource extends Resource
                     ->action(function (BankConnection $record): void {
                         try {
                             $plaidService = app(PlaidService::class);
-                            $plaidService->removeItem($record->plaid_access_token);
+                            if (! $plaidService->removeItem($record->plaid_access_token)) {
+                                throw new Exception('Provider removal was not confirmed.');
+                            }
 
                             $record->update([
                                 'status' => 'inactive',
@@ -246,7 +248,7 @@ class BankConnectionResource extends Resource
                         } catch (Exception $e) {
                             Notification::make()
                                 ->title('Disconnect Failed')
-                                ->body($e->getMessage())
+                                ->body('Could not disconnect this bank connection. Please retry or contact support.')
                                 ->danger()
                                 ->send();
                         }
