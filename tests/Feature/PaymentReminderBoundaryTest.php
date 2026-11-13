@@ -19,8 +19,8 @@ it('sends overdue reminders only under the invoice company policy and never to a
     $teams = app(TeamManagementService::class);
     $first = $teams->createPersonalTeamForUser(User::factory()->create());
     $second = $teams->createPersonalTeamForUser(User::factory()->create());
-    $mine = Customer::factory()->create(['team_id' => $first->getKey(), 'email' => 'mine@example.test']);
-    $foreign = Customer::factory()->create(['team_id' => $second->getKey(), 'email' => 'foreign@example.test']);
+    $mine = Customer::factory()->create(['team_id' => $first->getKey(), 'customer_email' => 'mine@example.test']);
+    $foreign = Customer::factory()->create(['team_id' => $second->getKey(), 'customer_email' => 'foreign@example.test']);
     $settings = ['days_before_reminder' => 3, 'reminder_frequency_days' => 7, 'max_reminders' => 2];
     ReminderSetting::forceCreate($settings + ['team_id' => $first->getKey(), 'is_active' => true]);
     ReminderSetting::forceCreate($settings + ['team_id' => $second->getKey(), 'is_active' => false]);
