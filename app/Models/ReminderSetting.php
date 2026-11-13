@@ -8,6 +8,9 @@ use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property int|null $team_id
+ */
 class ReminderSetting extends Model
 {
     use HasFactory;
@@ -19,6 +22,7 @@ class ReminderSetting extends Model
         'reminder_frequency_days',
         'max_reminders',
         'is_active',
+        'team_id',
     ];
 
     #[\Override]

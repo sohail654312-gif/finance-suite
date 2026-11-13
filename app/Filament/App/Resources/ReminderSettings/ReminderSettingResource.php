@@ -7,6 +7,8 @@ namespace App\Filament\App\Resources\ReminderSettings;
 use App\Filament\App\Resources\ReminderSettings\Pages\EditReminderSetting;
 use App\Filament\App\Resources\ReminderSettings\Pages\ListReminderSettings;
 use App\Models\ReminderSetting;
+use Filament\Actions\EditAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -14,11 +16,20 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ReminderSettingResource extends Resource
 {
     #[\Override]
     protected static ?string $model = ReminderSetting::class;
+
+    protected static bool $isScopedToTenant = false;
+
+    #[\Override]
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('team_id', Filament::getTenant()?->getKey() ?? -1);
+    }
 
     #[\Override]
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-bell';
@@ -45,21 +56,21 @@ class ReminderSettingResource extends Resource
             ->components([
                 TextInput::make('days_before_reminder')
                     ->label('Days Before First Reminder')
-                    ->numeric()
+                    ->integer()
                     ->required()
                     ->minValue(1)
                     ->helperText('Number of days after invoice date before sending first reminder'),
 
                 TextInput::make('reminder_frequency_days')
                     ->label('Days Between Reminders')
-                    ->numeric()
+                    ->integer()
                     ->required()
                     ->minValue(1)
                     ->helperText('Number of days to wait between reminders'),
 
                 TextInput::make('max_reminders')
                     ->label('Maximum Number of Reminders')
-                    ->numeric()
+                    ->integer()
                     ->required()
                     ->minValue(1)
                     ->helperText('Maximum number of reminders to send per invoice'),
@@ -87,7 +98,8 @@ class ReminderSettingResource extends Resource
                     ->sortable(),
                 ToggleColumn::make('is_active')
                     ->label('Active'),
-            ]);
+            ])
+            ->recordActions([EditAction::make()]);
     }
 
     #[\Override]

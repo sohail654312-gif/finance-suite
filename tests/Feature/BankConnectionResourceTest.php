@@ -2,10 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Filament\App\Resources\BankConnections\Pages\ListBankConnections;
+use App\Filament\App\Resources\BankConnections\Pages\ViewBankConnection;
 use App\Models\BankConnection;
 use App\Models\User;
+use App\Services\TeamManagementService;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class BankConnectionResourceTest extends TestCase
@@ -164,5 +171,56 @@ class BankConnectionResourceTest extends TestCase
         $this->assertNull($connection->plaid_access_token);
         $this->assertNull($connection->plaid_item_id);
         $this->assertNull($connection->plaid_institution_id);
+    }
+
+    public function test_sync_actions_respect_connection_status_and_keep_other_tenants_off_the_table(): void
+    {
+        $teams = app(TeamManagementService::class);
+        $team = $teams->createPersonalTeamForUser($this->user);
+        $foreignOwner = User::factory()->create();
+        $foreignTeam = $teams->createPersonalTeamForUser($foreignOwner);
+        $active = BankConnection::factory()->create([
+            'bank_id' => 'plaid', 'user_id' => $this->user->id, 'team_id' => $team->id, 'status' => 'active',
+        ]);
+        $inactive = BankConnection::factory()->create([
+            'bank_id' => 'plaid', 'user_id' => $this->user->id, 'team_id' => $team->id, 'status' => 'inactive',
+        ]);
+        $foreign = BankConnection::factory()->create(['user_id' => $foreignOwner->id, 'team_id' => $foreignTeam->id]);
+        $this->actingAs($this->user->fresh());
+        Filament::setCurrentPanel(Filament::getPanel('app'));
+        Filament::setTenant($team);
+        Http::preventStrayRequests();
+
+        Livewire::test(ListBankConnections::class)
+            ->assertCanSeeTableRecords([$active, $inactive])
+            ->assertCanNotSeeTableRecords([$foreign])
+            ->assertActionVisible(TestAction::make('sync_transactions')->table($active))
+            ->assertActionHidden(TestAction::make('sync_transactions')->table($inactive));
+        Livewire::test(ViewBankConnection::class, ['record' => $inactive->getRouteKey()])
+            ->assertActionHidden('sync_transactions');
+        Http::assertNothingSent();
+    }
+
+    public function test_view_action_advances_the_cursor_only_on_a_successful_provider_sync(): void
+    {
+        $team = app(TeamManagementService::class)->createPersonalTeamForUser($this->user);
+        $connection = BankConnection::factory()->create([
+            'bank_id' => 'plaid', 'user_id' => $this->user->id, 'team_id' => $team->id, 'status' => 'active',
+        ]);
+        $this->actingAs($this->user->fresh());
+        Filament::setCurrentPanel(Filament::getPanel('app'));
+        Filament::setTenant($team);
+        Http::preventStrayRequests();
+        Http::fake(['sandbox.plaid.com/transactions/sync' => Http::sequence()
+            ->push(['added' => [], 'modified' => [], 'removed' => [], 'next_cursor' => 'saved-cursor', 'has_more' => false])
+            ->push(['error_code' => 'INVALID_REQUEST'], 400)]);
+
+        $view = Livewire::test(ViewBankConnection::class, ['record' => $connection->getRouteKey()]);
+        $view->callAction('sync_transactions')->assertHasNoActionErrors();
+        $this->assertSame('saved-cursor', $connection->fresh()->plaid_cursor);
+        $view->callAction('sync_transactions')->assertHasNoActionErrors();
+        $this->assertSame('saved-cursor', $connection->fresh()->plaid_cursor);
+        $this->assertDatabaseCount('transactions', 0);
+        Http::assertSentCount(2);
     }
 }

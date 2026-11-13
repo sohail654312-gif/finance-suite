@@ -13,6 +13,7 @@ use App\Services\TeamManagementService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class NotificationSettingsTest extends TestCase
@@ -76,6 +77,27 @@ class NotificationSettingsTest extends TestCase
         $this->assertFalse(TeamNotificationSettings::canAccess());
     }
 
+    public function test_owner_can_update_sms_settings_without_rendering_or_retaining_secrets(): void
+    {
+        [$owner, $team] = $this->ownerWithTeam();
+        $team->update(['vonage_key' => 'prior-private-key', 'vonage_secret' => 'prior-private-secret']);
+        $this->actingAs($owner);
+        $this->useAppPanelTenant($team);
+
+        Livewire::test(TeamNotificationSettings::class)
+            ->assertOk()
+            ->assertDontSee('prior-private-secret')
+            ->fillForm(['vonage_key' => 'new-private-key', 'vonage_secret' => '', 'vonage_from' => 'Finance'])
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('data', ['vonage_from' => 'Finance'])
+            ->assertDontSee('new-private-key');
+
+        $this->assertSame('new-private-key', $team->fresh()->vonage_key);
+        $this->assertSame('prior-private-secret', $team->fresh()->vonage_secret);
+        $this->assertSame('Finance', $team->fresh()->vonage_from);
+    }
+
     public function test_saving_personal_preferences_upserts_a_single_row(): void
     {
         $user = User::factory()->create();
@@ -113,6 +135,24 @@ class NotificationSettingsTest extends TestCase
         $this->assertFalse($pref->mail_enabled);
         $this->assertTrue($pref->database_enabled);
         $this->assertFalse($pref->sms_enabled);
+    }
+
+    public function test_notification_form_loads_and_saves_preferences_for_the_signed_in_user_only(): void
+    {
+        [$user, $team] = $this->ownerWithTeam();
+        $other = User::factory()->create();
+        UserNotificationPreference::create(['user_id' => $other->id, 'phone' => '+15550101010']);
+        $this->actingAs($user);
+        $this->useAppPanelTenant($team);
+
+        Livewire::test(NotificationSettings::class)
+            ->assertSet('data.mail_enabled', true)
+            ->assertSet('data.sms_enabled', false)
+            ->fillForm(['phone' => '+15550101020', 'mail_enabled' => false, 'database_enabled' => true, 'sms_enabled' => true])
+            ->call('save')
+            ->assertHasNoErrors();
+        $this->assertDatabaseHas('user_notification_preferences', ['user_id' => $user->id, 'phone' => '+15550101020', 'sms_enabled' => true]);
+        $this->assertDatabaseHas('user_notification_preferences', ['user_id' => $other->id, 'phone' => '+15550101010']);
     }
 
     /** @return array{0: User, 1: Team} */

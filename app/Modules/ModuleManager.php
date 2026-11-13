@@ -206,7 +206,7 @@ class ModuleManager
 
         if ($useCache && Cache::has($cacheKey)) {
             $cached = Cache::get($cacheKey);
-            if (is_array($cached)) {
+            if (is_array($cached) && array_all($cached, fn (mixed $module): bool => $module instanceof ModuleInterface)) {
                 $this->modules = collect($cached);
 
                 return;
@@ -398,11 +398,15 @@ class ModuleManager
         }
     }
 
-    protected function checkDependencies(ModuleInterface $module): bool
+    protected function checkDependencies(ModuleInterface $module, array $visiting = []): bool
     {
+        if (isset($visiting[$module->getName()])) {
+            return false;
+        }
+        $visiting[$module->getName()] = true;
         foreach ($module->getDependencies() as $dependency) {
             $dep = $this->get($dependency);
-            if (! $dep?->isEnabled()) {
+            if (! $dep instanceof ModuleInterface || ! $dep->isEnabled() || ! $this->checkDependencies($dep, $visiting)) {
                 return false;
             }
         }
