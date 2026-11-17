@@ -54,14 +54,15 @@ class RevolutWebhookController extends Controller
             ]);
         } catch (Exception $e) {
             Log::error('Revolut webhook processing failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
 
-            // Return 200 to prevent Revolut from retrying on processing errors
+            // A failed verified delivery must remain retryable; acknowledge only
+            // after processing succeeds. Notifications do not authorize postings.
             return response()->json([
                 'success' => false,
                 'message' => 'Webhook processing failed',
-            ], 200);
+            ], 503);
         }
     }
 

@@ -8,6 +8,7 @@ use App\Filament\App\Resources\BankConnections\Pages\CreateBankConnection;
 use App\Filament\App\Resources\BankConnections\Pages\EditBankConnection;
 use App\Filament\App\Resources\BankConnections\Pages\ListBankConnections;
 use App\Filament\App\Resources\BankConnections\Pages\ViewBankConnection;
+use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankConnection;
 use App\Services\PlaidService;
 use Exception;
@@ -16,6 +17,7 @@ use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -27,11 +29,14 @@ use Filament\Tables;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class BankConnectionResource extends Resource
 {
     #[\Override]
     protected static ?string $model = BankConnection::class;
+
+    protected static bool $isScopedToTenant = false;
 
     #[\Override]
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-library';
@@ -41,6 +46,14 @@ class BankConnectionResource extends Resource
 
     #[\Override]
     protected static ?int $navigationSort = 1;
+
+    #[\Override]
+    public static function getEloquentQuery(): Builder
+    {
+        $tenant = Filament::getTenant();
+
+        return parent::getEloquentQuery()->where('team_id', $tenant?->getKey() ?? -1);
+    }
 
     #[\Override]
     public static function form(Schema $schema): Schema
@@ -177,26 +190,28 @@ class BankConnectionResource extends Resource
                     ->label('Sync Transactions')
                     ->icon('heroicon-o-arrow-path')
                     ->color('primary')
-                    ->visible(fn (BankConnection $record): bool => $record->plaid_item_id !== null)
+                    ->visible(fn (BankConnection $record): bool => $record->status === 'active' && $record->plaid_item_id !== null)
                     ->requiresConfirmation()
                     ->action(function (BankConnection $record): void {
                         try {
                             $plaidService = app(PlaidService::class);
-                            $result = $plaidService->syncTransactions($record);
+                            $job = new SyncPlaidTransactionsJob((int) $record->getKey());
+                            $job->handle($plaidService);
+                            $result = $job->summary;
 
-                            $addedCount = count($result['added'] ?? []);
-                            $modifiedCount = count($result['modified'] ?? []);
-                            $removedCount = count($result['removed'] ?? []);
+                            $addedCount = $result['added'];
+                            $modifiedCount = $result['modified'];
+                            $removedCount = $result['removed'];
 
                             Notification::make()
                                 ->title('Transactions Synced Successfully')
                                 ->body("Added: {$addedCount}, Modified: {$modifiedCount}, Removed: {$removedCount}")
                                 ->success()
                                 ->send();
-                        } catch (Exception $e) {
+                        } catch (\Throwable $e) {
                             Notification::make()
                                 ->title('Sync Failed')
-                                ->body($e->getMessage())
+                                ->body('Transactions could not be synchronized. Review the connection and retry.')
                                 ->danger()
                                 ->send();
                         }

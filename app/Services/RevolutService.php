@@ -78,7 +78,7 @@ class RevolutService
             throw new Exception('Failed to exchange authorization code: '.$response->body());
         } catch (Exception $e) {
             Log::error('Revolut authorization code exchange failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -106,7 +106,7 @@ class RevolutService
             throw new Exception('Failed to refresh access token: '.$response->body());
         } catch (Exception $e) {
             Log::error('Revolut token refresh failed', [
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -156,7 +156,7 @@ class RevolutService
         } catch (Exception $e) {
             Log::error('Revolut get accounts failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -184,7 +184,7 @@ class RevolutService
             Log::error('Revolut get account failed', [
                 'connection_id' => $connection->id,
                 'account_id' => $accountId,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -232,7 +232,7 @@ class RevolutService
         } catch (Exception $e) {
             Log::error('Revolut get transactions failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -262,7 +262,7 @@ class RevolutService
         } catch (Exception $e) {
             Log::error('Revolut send payment failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }
@@ -303,7 +303,7 @@ class RevolutService
         } catch (Exception $e) {
             Log::error('Revolut send bulk payment failed', [
                 'connection_id' => $connection->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
             throw $e;
         }

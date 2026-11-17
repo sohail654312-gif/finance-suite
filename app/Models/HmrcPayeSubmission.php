@@ -8,6 +8,7 @@ use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * @property-read HmrcSubmission|null $hmrcSubmission
@@ -79,6 +80,13 @@ class HmrcPayeSubmission extends Model
      */
     public function calculateFromPayroll(): void
     {
+        $submission = $this->hmrcSubmission()->first();
+        if ($submission !== null && ((string) $submission->company_id !== (string) $this->company_id || ! $submission->isEditable())) {
+            throw new \DomainException('PAYE calculations require an editable submission for the same company.');
+        }
+        if (! Schema::hasColumns('payrolls', ['company_id', 'gross_pay', 'income_tax', 'employee_ni_contribution', 'employer_ni_contribution', 'student_loan_deduction'])) {
+            throw new \DomainException('PAYE calculation requires persisted company ownership and statutory payroll components.');
+        }
         $payrollRecords = Payroll::where('company_id', $this->company_id)
             ->whereYear('pay_period_end', '=', $this->getTaxYearEnd())
             ->whereMonth('pay_period_end', '=', $this->tax_month)
@@ -177,10 +185,10 @@ class HmrcPayeSubmission extends Model
         // RTI submissions should be submitted on or before payment date
         // Check if actual submission to HMRC was late
         if ($this->hmrcSubmission && $this->hmrcSubmission->submitted_at) {
-            return $this->hmrcSubmission->submitted_at->isAfter($this->payment_date);
+            return $this->hmrcSubmission->submitted_at->toDateString() > $this->payment_date->toDateString();
         }
 
         // If not yet submitted, check if payment date has passed
-        return now()->isAfter($this->payment_date);
+        return now()->toDateString() > $this->payment_date->toDateString();
     }
 }

@@ -16,6 +16,7 @@ use App\Models\Vendor;
 use App\Services\Concerns\RequestsProviderTokens;
 use App\Services\Concerns\ResolvesSyncedContacts;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -214,27 +215,29 @@ class QuickBooksService
     {
         $rows = $this->query($connection, 'select * from Estimate')['Estimate'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['Id'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['Id'])) {
+                    continue;
+                }
+
+                Estimate::updateOrCreate(
+                    ['qbo_id' => (string) $row['Id'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['CustomerRef'] ?? null, $connection->team_id),
+                        'estimate_number' => $row['DocNumber'] ?? 'QBO-'.$row['Id'],
+                        'estimate_date' => $row['TxnDate'] ?? now()->toDateString(),
+                        'expiration_date' => $row['ExpirationDate'] ?? null,
+                        'total_amount' => $row['TotalAmt'] ?? 0,
+                        'subtotal_amount' => $row['TotalAmt'] ?? 0,
+                        'status' => strtolower((string) ($row['CustomerMemo']['value'] ?? 'draft')),
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            Estimate::updateOrCreate(
-                ['qbo_id' => (string) $row['Id'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['CustomerRef'] ?? null, $connection->team_id),
-                    'estimate_number' => $row['DocNumber'] ?? 'QBO-'.$row['Id'],
-                    'estimate_date' => $row['TxnDate'] ?? now()->toDateString(),
-                    'expiration_date' => $row['ExpirationDate'] ?? null,
-                    'total_amount' => $row['TotalAmt'] ?? 0,
-                    'subtotal_amount' => $row['TotalAmt'] ?? 0,
-                    'status' => strtolower((string) ($row['CustomerMemo']['value'] ?? 'draft')),
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCreditMemo(CreditMemo $creditMemo, QboConnection $connection): CreditMemo
@@ -266,26 +269,28 @@ class QuickBooksService
     {
         $rows = $this->query($connection, 'select * from CreditMemo')['CreditMemo'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['Id'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['Id'])) {
+                    continue;
+                }
+
+                CreditMemo::updateOrCreate(
+                    ['qbo_id' => (string) $row['Id'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['CustomerRef'] ?? null, $connection->team_id),
+                        'credit_memo_number' => $row['DocNumber'] ?? 'QBO-'.$row['Id'],
+                        'credit_memo_date' => $row['TxnDate'] ?? now()->toDateString(),
+                        'total_amount' => $row['TotalAmt'] ?? 0,
+                        'subtotal_amount' => $row['TotalAmt'] ?? 0,
+                        'status' => 'open',
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            CreditMemo::updateOrCreate(
-                ['qbo_id' => (string) $row['Id'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['CustomerRef'] ?? null, $connection->team_id),
-                    'credit_memo_number' => $row['DocNumber'] ?? 'QBO-'.$row['Id'],
-                    'credit_memo_date' => $row['TxnDate'] ?? now()->toDateString(),
-                    'total_amount' => $row['TotalAmt'] ?? 0,
-                    'subtotal_amount' => $row['TotalAmt'] ?? 0,
-                    'status' => 'open',
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCustomer(Customer $customer, QboConnection $connection): Customer
@@ -535,10 +540,14 @@ class QuickBooksService
         $rows = $this->query($connection, 'select * from Payment')['Payment'] ?? [];
 
         foreach ($rows as $row) {
+            $invoiceId = $this->resolvePaymentInvoiceId($row, $connection->team_id);
+            if ($invoiceId === 0) {
+                continue;
+            }
             Payment::updateOrCreate(
                 ['qbo_id' => $row['Id'], 'team_id' => $connection->team_id],
                 [
-                    'invoice_id' => $this->resolvePaymentInvoiceId($row, $connection->team_id),
+                    'invoice_id' => $invoiceId,
                     'payment_amount' => $row['TotalAmt'] ?? 0,
                     'payment_date' => $row['TxnDate'] ?? now()->toDateString(),
                     'qbo_sync_token' => $row['SyncToken'] ?? null,
@@ -560,6 +569,9 @@ class QuickBooksService
     private function resolvePaymentInvoiceId(array $row, ?int $teamId): int
     {
         $txnId = $row['Line'][0]['LinkedTxn'][0]['TxnId'] ?? null;
+        if ((! is_string($txnId) && ! is_int($txnId)) || trim((string) $txnId) === '') {
+            return 0;
+        }
 
         return (int) (Invoice::where('qbo_id', $txnId)->where('team_id', $teamId)->value('id') ?? 0);
     }

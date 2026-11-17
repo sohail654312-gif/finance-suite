@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\BankConnection;
+use App\Models\Currency;
 use App\Models\User;
 use App\Services\TeamManagementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -125,6 +126,54 @@ class PlaidControllerTest extends TestCase
             ]);
     }
 
+    public function test_incomplete_provider_exchange_does_not_create_a_connection(): void
+    {
+        Http::fake(['sandbox.plaid.com/item/public_token/exchange' => Http::response(['access_token' => 'private-provider-token'])]);
+
+        $this->actingAs($this->user)->postJson('/api/plaid/store-connection', [
+            'public_token' => 'synthetic-public-token', 'institution_id' => 'ins_123',
+            'institution_name' => 'Synthetic bank', 'accounts' => [['id' => 'acc_1']],
+        ])->assertStatus(500)->assertExactJson(['success' => false, 'message' => 'Failed to store connection.']);
+        $this->assertDatabaseCount('bank_connections', 0);
+    }
+
+    public function test_failed_provider_disconnect_does_not_change_connection_state(): void
+    {
+        $connection = BankConnection::factory()->create(['team_id' => $this->user->current_team_id, 'status' => 'active']);
+        Http::fake(['sandbox.plaid.com/item/remove' => Http::response(['error' => 'private-provider-detail'], 400)]);
+
+        $this->actingAs($this->user)->deleteJson("/api/plaid/connections/{$connection->id}")
+            ->assertStatus(500)->assertExactJson(['success' => false, 'message' => 'Failed to remove connection.']);
+        $this->assertSame('active', $connection->refresh()->status);
+    }
+
+    public function test_oauth_redirect_requires_a_string_state(): void
+    {
+        $this->getJson('/api/plaid/oauth-redirect?oauth_state_id%5B%5D=synthetic')
+            ->assertStatus(400)->assertJsonPath('success', false);
+    }
+
+    public function test_viewer_cannot_link_sync_or_disconnect_a_bank(): void
+    {
+        $team = $this->user->currentTeam;
+        $viewer = User::factory()->create();
+        $team->users()->attach($viewer->getKey(), ['role' => 'viewer']);
+        $viewer->switchTeam($team);
+        $connection = BankConnection::factory()->create(['team_id' => $team->getKey(), 'status' => 'active']);
+        Http::preventStrayRequests();
+
+        $this->actingAs($viewer)->postJson('/api/plaid/create-link-token')->assertForbidden();
+        $this->postJson('/api/plaid/store-connection', [
+            'public_token' => 'synthetic-public-token', 'institution_id' => 'ins_123',
+            'institution_name' => 'Synthetic bank', 'accounts' => [['id' => 'acc_1']],
+        ])->assertForbidden();
+        $this->postJson("/api/plaid/connections/{$connection->id}/sync")->assertForbidden();
+        $this->getJson("/api/plaid/connections/{$connection->id}/balances")->assertForbidden();
+        $this->deleteJson("/api/plaid/connections/{$connection->id}")->assertForbidden();
+        $this->assertSame('active', $connection->fresh()->status);
+        Http::assertNothingSent();
+    }
+
     public function test_list_connections_returns_team_connections(): void
     {
         BankConnection::factory()->count(3)->create([
@@ -158,8 +207,12 @@ class PlaidControllerTest extends TestCase
 
     public function test_sync_transactions_syncs_from_plaid(): void
     {
+        Currency::firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'symbol' => '$', 'is_default' => true]);
         $connection = BankConnection::factory()->create([
+            'user_id' => $this->user->id,
             'team_id' => $this->user->current_team_id,
+            'bank_id' => 'ins_123',
+            'plaid_institution_id' => 'ins_123',
             'plaid_access_token' => 'access-test-token',
             'status' => 'active',
         ]);
@@ -169,6 +222,7 @@ class PlaidControllerTest extends TestCase
                 'added' => [
                     [
                         'transaction_id' => 'tx_123',
+                        'iso_currency_code' => 'USD',
                         'date' => '2026-02-14',
                         'name' => 'Test Transaction',
                         'amount' => 25.50,

@@ -63,7 +63,7 @@ class InventoryService
     {
         return InventoryItem::where('team_id', $this->scopedTeamId())
             ->where('is_active', true)
-            ->where('current_quantity', '<=', 'reorder_point')
+            ->whereColumn('current_quantity', '<=', 'reorder_point')
             ->get();
     }
 

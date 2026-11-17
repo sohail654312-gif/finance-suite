@@ -8,6 +8,7 @@ use App\Traits\IsTenantModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * @property-read HmrcSubmission|null $hmrcSubmission
@@ -81,6 +82,13 @@ class HmrcCorporationTaxSubmission extends Model
      */
     public function calculateFromFinancials(): void
     {
+        $submission = $this->hmrcSubmission()->first();
+        if ($submission !== null && ((string) $submission->company_id !== (string) $this->company_id || ! $submission->isEditable())) {
+            throw new \DomainException('Corporation tax calculations require an editable submission for the same company.');
+        }
+        if (! Schema::hasColumns('expenses', ['company_id', 'expense_date'])) {
+            throw new \DomainException('Corporation tax calculation requires an authoritative company-owned expense source.');
+        }
         // Get total revenue for the period
         $revenue = Invoice::where('company_id', $this->company_id)
             ->whereBetween('invoice_date', [$this->accounting_period_start, $this->accounting_period_end])
@@ -185,7 +193,7 @@ class HmrcCorporationTaxSubmission extends Model
      */
     public function isOverdue(): bool
     {
-        return now()->isAfter($this->filing_due_date) &&
+        return now()->startOfDay()->isAfter($this->filing_due_date) &&
                (! $this->hmrcSubmission || ! $this->hmrcSubmission->isSubmitted());
     }
 }

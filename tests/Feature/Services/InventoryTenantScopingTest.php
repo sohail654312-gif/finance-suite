@@ -65,4 +65,22 @@ class InventoryTenantScopingTest extends TestCase
         // Only team A's item (10 * 5 = 50), not team B's (100 * 5 = 500).
         $this->assertEquals(50.0, app(InventoryService::class)->getInventoryValue());
     }
+
+    public function test_low_stock_matches_each_active_item_against_its_own_reorder_point(): void
+    {
+        [$user, $mine, $theirs] = $this->twoTenants();
+        $mine->update(['reorder_point' => 10, 'is_active' => true]);
+        $theirs->update(['reorder_point' => 200, 'is_active' => true]);
+        $aboveThreshold = InventoryItem::factory()->create([
+            'team_id' => $mine->team_id, 'current_quantity' => 11, 'reorder_point' => 10, 'is_active' => true,
+        ]);
+        $inactive = InventoryItem::factory()->create([
+            'team_id' => $mine->team_id, 'current_quantity' => 0, 'reorder_point' => 10, 'is_active' => false,
+        ]);
+
+        $this->actingAs($user);
+        $this->assertSame([$mine->getKey()], app(InventoryService::class)->checkLowStock()->modelKeys());
+        $this->assertFalse($aboveThreshold->needsReorder());
+        $this->assertTrue($inactive->needsReorder());
+    }
 }

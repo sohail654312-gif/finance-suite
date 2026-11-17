@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Filament\App\Resources\BankConnections\Pages;
 
 use App\Filament\App\Resources\BankConnections\BankConnectionResource;
+use App\Jobs\SyncPlaidTransactionsJob;
 use App\Models\BankConnection;
 use App\Services\PlaidService;
-use Exception;
 use Filament\Actions;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Throwable;
 
 /**
  * @property-read BankConnection $record
@@ -31,25 +32,27 @@ class ViewBankConnection extends ViewRecord
                 ->label('Sync Transactions')
                 ->icon('heroicon-o-arrow-path')
                 ->color('primary')
-                ->visible(fn (): bool => $this->record->plaid_item_id !== null)
+                ->visible(fn (): bool => $this->record->status === 'active' && $this->record->plaid_item_id !== null)
                 ->action(function (): void {
                     try {
                         $plaidService = app(PlaidService::class);
-                        $result = $plaidService->syncTransactions($this->record);
+                        $job = new SyncPlaidTransactionsJob((int) $this->record->getKey());
+                        $job->handle($plaidService);
+                        $result = $job->summary;
 
-                        $addedCount = count($result['added'] ?? []);
-                        $modifiedCount = count($result['modified'] ?? []);
-                        $removedCount = count($result['removed'] ?? []);
+                        $addedCount = $result['added'];
+                        $modifiedCount = $result['modified'];
+                        $removedCount = $result['removed'];
 
                         Notification::make()
                             ->title('Transactions Synced Successfully')
                             ->body("Added: {$addedCount}, Modified: {$modifiedCount}, Removed: {$removedCount}")
                             ->success()
                             ->send();
-                    } catch (Exception $e) {
+                    } catch (Throwable $e) {
                         Notification::make()
                             ->title('Sync Failed')
-                            ->body($e->getMessage())
+                            ->body('Transactions could not be synchronized. Review the connection and retry.')
                             ->danger()
                             ->send();
                     }

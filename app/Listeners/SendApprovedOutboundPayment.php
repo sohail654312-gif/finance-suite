@@ -25,8 +25,9 @@ class SendApprovedOutboundPayment
     {
         $payment = $event->approvable;
 
-        // Only outbound payments; and never re-send one already sent.
-        if (! $payment instanceof OutboundPayment || $payment->status === OutboundPayment::STATUS_SENT) {
+        if (! $payment instanceof OutboundPayment
+            || $payment->approval_status !== 'approved'
+            || $payment->status !== OutboundPayment::STATUS_PENDING_APPROVAL) {
             return;
         }
 
@@ -60,7 +61,7 @@ class SendApprovedOutboundPayment
             $payment->update(['status' => OutboundPayment::STATUS_FAILED]);
             Log::error('Outbound payment send failed', [
                 'payment_id' => $payment->id,
-                'error' => $e->getMessage(),
+                'exception_class' => $e::class,
             ]);
         }
     }

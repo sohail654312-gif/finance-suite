@@ -8,7 +8,7 @@ use App\Models\BankStatement;
 use App\Models\ReconciliationRule;
 use App\Models\Transaction;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class ReconciliationService
 {
@@ -19,20 +19,35 @@ class ReconciliationService
      */
     public function reconcileStatement(BankStatement $bankStatement): array
     {
-        $result = $this->reconcile($bankStatement);
+        return DB::transaction(function () use ($bankStatement): array {
+            $statement = BankStatement::query()->lockForUpdate()->findOrFail($bankStatement->getKey());
+            $result = $this->reconcile($statement);
 
-        $reconciled = (int) $result['unmatched_transactions'] === 0
-            && abs((float) $result['balance_discrepancy']) < 0.01;
-        $bankStatement->update(['reconciled' => $reconciled]);
+            $reconciled = (int) $result['unmatched_transactions'] === 0
+                && abs((float) $result['balance_discrepancy']) < 0.01;
+            $statement->update(['reconciled' => $reconciled]);
+            $bankStatement->refresh();
 
-        $result['reconciled'] = $reconciled;
+            $result['reconciled'] = $reconciled;
 
-        return $result;
+            return $result;
+        });
+    }
+
+    public function preview(BankStatement $bankStatement): array
+    {
+        return $this->evaluate($bankStatement, persist: false);
     }
 
     public function reconcile(BankStatement $bankStatement): array
     {
+        return $this->evaluate($bankStatement, persist: true);
+    }
+
+    private function evaluate(BankStatement $bankStatement, bool $persist): array
+    {
         $transactions = Transaction::where('account_id', $bankStatement->account_id)
+            ->where('team_id', $bankStatement->team_id)
             ->whereBetween('transaction_date', [
                 $bankStatement->statement_date->startOfMonth(),
                 $bankStatement->statement_date->endOfMonth(),
@@ -62,12 +77,17 @@ class ReconciliationService
             }
 
             // User-defined rules take precedence; fall back to the built-in heuristic.
-            $matched = $this->applyRules($rules, $transaction)
-                || $this->findMatch($transaction, $bankStatement);
+            $rule = $rules->first(fn (ReconciliationRule $rule): bool => $this->ruleMatches($rule, $transaction));
+            $matched = $rule !== null || $this->findMatch($transaction, $bankStatement);
 
             if ($matched) {
                 $matchedTransactions->push($transaction);
-                $transaction->update(['reconciled' => true]);
+                if ($persist) {
+                    if ($rule?->action_account_id !== null) {
+                        $transaction->debit_account_id = $rule->action_account_id;
+                    }
+                    $transaction->update(['reconciled' => true]);
+                }
             } else {
                 $unmatchedTransactions->push($transaction);
                 $discrepancies->push([
@@ -104,6 +124,7 @@ class ReconciliationService
     {
         // Try exact match first
         $exactMatch = $bankStatement->transactions()
+            ->where('team_id', $bankStatement->team_id)
             ->where('transaction_date', $transaction->transaction_date)
             ->where('amount', $transaction->amount)
             ->exists();
@@ -115,6 +136,7 @@ class ReconciliationService
         // Try fuzzy match within 2 days and exact amount
         $matchDate = Carbon::parse((string) $transaction->transaction_date);
         $fuzzyMatch = $bankStatement->transactions()
+            ->where('team_id', $bankStatement->team_id)
             ->whereBetween('transaction_date', [
                 $matchDate->copy()->subDays(2),
                 $matchDate->copy()->addDays(2),
@@ -123,28 +145,6 @@ class ReconciliationService
             ->exists();
 
         return $fuzzyMatch;
-    }
-
-    /**
-     * First active rule whose condition matches assigns its account to the
-     * transaction (posting/debit side, so the bank account_id used by
-     * reconcile() is untouched) and reports a match.
-     *
-     * @param  Collection<int, ReconciliationRule>  $rules
-     */
-    private function applyRules(Collection $rules, Transaction $transaction): bool
-    {
-        foreach ($rules as $rule) {
-            if ($this->ruleMatches($rule, $transaction)) {
-                if ($rule->action_account_id !== null) {
-                    $transaction->debit_account_id = $rule->action_account_id;
-                }
-
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function ruleMatches(ReconciliationRule $rule, Transaction $transaction): bool

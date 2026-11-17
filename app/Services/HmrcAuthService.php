@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -47,6 +48,7 @@ class HmrcAuthService
      */
     public function exchangeCodeForToken(string $code): array
     {
+        $this->tokenCacheKey('access');
         try {
             $response = Http::asForm()
                 ->post($this->baseUrl.'/oauth/token', [
@@ -59,6 +61,7 @@ class HmrcAuthService
 
             if ($response->successful()) {
                 $data = $response->json();
+                $this->validateTokenResponse($data);
 
                 // Cache the access token
                 $this->cacheAccessToken($data['access_token'], $data['expires_in']);
@@ -70,10 +73,10 @@ class HmrcAuthService
                 return $data;
             }
 
-            $this->logError('Token exchange failed', $response->json());
+            $this->logError('Token exchange failed', ['status' => $response->status()]);
             throw new \Exception('Failed to exchange authorization code for token');
         } catch (\Exception $e) {
-            $this->logError('Token exchange error', ['error' => $e->getMessage()]);
+            $this->logError('Token exchange error', ['exception_type' => $e::class]);
             throw $e;
         }
     }
@@ -83,6 +86,7 @@ class HmrcAuthService
      */
     public function refreshAccessToken(?string $refreshToken = null): array
     {
+        $this->tokenCacheKey('access');
         $refreshToken ??= $this->getCachedRefreshToken();
 
         if (! $refreshToken) {
@@ -100,6 +104,7 @@ class HmrcAuthService
 
             if ($response->successful()) {
                 $data = $response->json();
+                $this->validateTokenResponse($data);
 
                 $this->cacheAccessToken($data['access_token'], $data['expires_in']);
 
@@ -110,10 +115,10 @@ class HmrcAuthService
                 return $data;
             }
 
-            $this->logError('Token refresh failed', $response->json());
+            $this->logError('Token refresh failed', ['status' => $response->status()]);
             throw new \Exception('Failed to refresh access token');
         } catch (\Exception $e) {
-            $this->logError('Token refresh error', ['error' => $e->getMessage()]);
+            $this->logError('Token refresh error', ['exception_type' => $e::class]);
             throw $e;
         }
     }
@@ -140,7 +145,7 @@ class HmrcAuthService
      */
     public function isAuthorized(): bool
     {
-        return Cache::has('hmrc_access_token') || Cache::has('hmrc_refresh_token');
+        return Cache::has($this->tokenCacheKey('access')) || Cache::has($this->tokenCacheKey('refresh'));
     }
 
     /**
@@ -149,8 +154,8 @@ class HmrcAuthService
     private function cacheAccessToken(string $token, int $expiresIn): void
     {
         // Cache for slightly less than expiration time to be safe
-        $ttl = $expiresIn - 60;
-        Cache::put('hmrc_access_token', $token, $ttl);
+        $ttl = max(1, $expiresIn - min(60, (int) floor($expiresIn / 10)));
+        Cache::put($this->tokenCacheKey('access'), $token, $ttl);
     }
 
     /**
@@ -159,7 +164,7 @@ class HmrcAuthService
     private function cacheRefreshToken(string $token): void
     {
         // Refresh tokens typically last 18 months
-        Cache::put('hmrc_refresh_token', $token, 60 * 60 * 24 * 540); // 540 days
+        Cache::put($this->tokenCacheKey('refresh'), $token, 60 * 60 * 24 * 540); // 540 days
     }
 
     /**
@@ -167,7 +172,7 @@ class HmrcAuthService
      */
     private function getCachedAccessToken(): ?string
     {
-        return Cache::get('hmrc_access_token');
+        return Cache::get($this->tokenCacheKey('access'));
     }
 
     /**
@@ -175,7 +180,7 @@ class HmrcAuthService
      */
     private function getCachedRefreshToken(): ?string
     {
-        return Cache::get('hmrc_refresh_token');
+        return Cache::get($this->tokenCacheKey('refresh'));
     }
 
     /**
@@ -183,8 +188,29 @@ class HmrcAuthService
      */
     public function logout(): void
     {
-        Cache::forget('hmrc_access_token');
-        Cache::forget('hmrc_refresh_token');
+        Cache::forget($this->tokenCacheKey('access'));
+        Cache::forget($this->tokenCacheKey('refresh'));
+    }
+
+    private function tokenCacheKey(string $kind): string
+    {
+        $identity = auth()->user();
+        $user = $identity instanceof User ? $identity->fresh() : null;
+        $team = $user?->currentTeam;
+        if ($user === null || $team === null || ! $user->belongsToTeam($team)) {
+            throw new \RuntimeException('An authenticated owned team is required for HMRC authorization.');
+        }
+
+        return 'hmrc.oauth.'.hash('sha256', implode('|', [$this->baseUrl, $this->clientId, (string) $user->getKey(), (string) $team->getKey()])).'.'.$kind;
+    }
+
+    private function validateTokenResponse(mixed $data): void
+    {
+        if (! is_array($data) || ! is_string($data['access_token'] ?? null) || trim($data['access_token']) === ''
+            || ! is_int($data['expires_in'] ?? null) || $data['expires_in'] < 1
+            || (isset($data['refresh_token']) && (! is_string($data['refresh_token']) || trim($data['refresh_token']) === ''))) {
+            throw new \RuntimeException('HMRC returned an invalid OAuth token response.');
+        }
     }
 
     /**

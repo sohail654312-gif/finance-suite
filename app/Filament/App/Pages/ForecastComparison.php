@@ -15,6 +15,7 @@ use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\EmbeddedSchema;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Pick a forecast scenario + period count and compare the rolling baseline
@@ -54,9 +55,7 @@ class ForecastComparison extends Page
      */
     public function visibleScenarios(): array
     {
-        // -1 sentinel (not null) so a tenantless caller gets an empty set rather
-        // than leaking team_id IS NULL rows — the repo-wide convention.
-        return ForecastScenario::where('team_id', Filament::getTenant()?->getKey() ?? -1)->pluck('name', 'id')->all();
+        return ForecastScenario::where('team_id', $this->selectedTeamId() ?? -1)->pluck('name', 'id')->all();
     }
 
     public function form(Schema $schema): Schema
@@ -68,8 +67,9 @@ class ForecastComparison extends Page
                     ->options(fn (): array => $this->visibleScenarios())
                     ->required(),
                 TextInput::make('periods')
-                    ->numeric()
+                    ->integer()
                     ->minValue(1)
+                    ->maxValue(120)
                     ->default(3)
                     ->required(),
             ])
@@ -92,24 +92,28 @@ class ForecastComparison extends Page
 
     public function generate(): void
     {
-        $data = $this->data ?? [];
-        $scenarioId = (int) ($data['forecast_scenario_id'] ?? 0);
-
-        // Only compare against a scenario the current team actually owns.
-        if (! array_key_exists($scenarioId, $this->visibleScenarios())) {
+        // Discard errors from the previous attempt; this submission is revalidated below.
+        $this->resetValidation();
+        $this->result = null;
+        $teamId = $this->selectedTeamId();
+        if ($teamId === null) {
             return;
         }
+        $data = Validator::make(['data' => $this->data ?? []], [
+            'data.forecast_scenario_id' => ['required', 'integer', 'min:1'],
+            'data.periods' => ['required', 'integer', 'between:1,120'],
+        ])->validate()['data'];
+        $scenario = ForecastScenario::where('team_id', $teamId)->find($data['forecast_scenario_id']);
+        if ($scenario !== null) {
+            $this->result = app(ForecastService::class)->compare((int) $data['periods'], $scenario, $teamId);
+        }
+    }
 
-        $scenario = ForecastScenario::findOrFail($scenarioId);
-        $periods = (int) ($data['periods'] ?? 3);
+    private function selectedTeamId(): ?int
+    {
+        $tenant = Filament::getTenant();
 
-        // Baseline MUST use the same team as the scenario dropdown (the active
-        // tenant) — not auth()->current_team_id, which can drift out of sync and
-        // would render one team's actuals under another team's label.
-        $this->result = app(ForecastService::class)->compare(
-            $periods,
-            $scenario,
-            (int) (Filament::getTenant()?->getKey() ?? -1),
-        );
+        return $tenant !== null && auth()->user()?->canAccessTenant($tenant) === true
+            ? (int) $tenant->getKey() : null;
     }
 }

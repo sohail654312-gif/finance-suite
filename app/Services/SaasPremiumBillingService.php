@@ -180,19 +180,22 @@ final class SaasPremiumBillingService
     /** @param array<string, mixed> $object */
     private function teamForStripeObject(array $object): ?Team
     {
-        $teamId = $object['metadata']['team_id'] ?? null;
-        if (is_string($teamId) && ctype_digit($teamId)) {
-            $team = Team::query()->find((int) $teamId);
-            if ($team) {
-                return $team;
-            }
+        $customerId = $object['customer'] ?? null;
+        if (! is_string($customerId) || $customerId === '') {
+            return null;
         }
 
-        $customerId = $object['customer'] ?? null;
+        $teamId = $object['metadata']['team_id'] ?? null;
+        if ($teamId !== null) {
+            if (! is_string($teamId) || ! ctype_digit($teamId)) {
+                return null;
+            }
+            $team = Team::query()->find((int) $teamId);
 
-        return is_string($customerId) && $customerId !== ''
-            ? Team::query()->where('stripe_customer_id', $customerId)->first()
-            : null;
+            return $team?->stripe_customer_id === $customerId ? $team : null;
+        }
+
+        return Team::query()->where('stripe_customer_id', $customerId)->first();
     }
 
     private function normaliseInterval(string $interval): string

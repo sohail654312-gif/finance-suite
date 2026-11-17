@@ -8,6 +8,7 @@ use App\Modules\Contracts\ModuleInterface;
 use App\Modules\ModuleManager;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use ReflectionClass;
 
 class ExternalModuleLoader
 {
@@ -23,6 +24,11 @@ class ExternalModuleLoader
             return;
         }
 
+        $path = realpath($path);
+        if ($path === false || ! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D', $namespace)) {
+            throw new \InvalidArgumentException('External modules require a real directory and valid PHP namespace.');
+        }
+
         if (in_array($path, $this->loadedPaths)) {
             return;
         }
@@ -30,6 +36,12 @@ class ExternalModuleLoader
         $this->loadedPaths[] = $path;
 
         foreach (File::directories($path) as $directory) {
+            $realDirectory = realpath($directory);
+            if ($realDirectory === false || ! $this->isWithin($realDirectory, $path)) {
+                Log::warning('External module directory escapes its configured root.');
+
+                continue;
+            }
             $this->loadModuleFromDirectory($directory, $namespace);
         }
     }
@@ -50,6 +62,12 @@ class ExternalModuleLoader
 
         foreach ($candidates as $className) {
             if (! class_exists($className)) {
+                continue;
+            }
+            $source = (new ReflectionClass($className))->getFileName();
+            if ($source === false || ! $this->isWithin($source, $directory)) {
+                Log::warning('External module class does not belong to its configured directory.');
+
                 continue;
             }
 
@@ -99,7 +117,7 @@ class ExternalModuleLoader
         }
 
         try {
-            $composerData = json_decode(File::get($composerJsonPath), true);
+            $composerData = json_decode(File::get($composerJsonPath), true, flags: JSON_THROW_ON_ERROR);
             $namespaces = array_keys($composerData['autoload']['psr-4'] ?? []);
 
             if (! empty($namespaces)) {
@@ -114,7 +132,7 @@ class ExternalModuleLoader
 
     public function registerCustomModule(string $modulePath, string $moduleClass): bool
     {
-        if (! File::exists($modulePath)) {
+        if (! File::isDirectory($modulePath)) {
             Log::warning("Custom module path does not exist: {$modulePath}");
 
             return false;
@@ -122,6 +140,13 @@ class ExternalModuleLoader
 
         if (! class_exists($moduleClass)) {
             Log::warning("Custom module class does not exist: {$moduleClass}");
+
+            return false;
+        }
+
+        $source = (new ReflectionClass($moduleClass))->getFileName();
+        if ($source === false || ! $this->isWithin($source, $modulePath)) {
+            Log::warning('Custom module class does not belong to its configured directory.');
 
             return false;
         }
@@ -149,5 +174,14 @@ class ExternalModuleLoader
     public function getLoadedPaths(): array
     {
         return $this->loadedPaths;
+    }
+
+    private function isWithin(string $path, string $root): bool
+    {
+        $actual = realpath($path);
+        $base = realpath($root);
+
+        return $actual !== false && $base !== false
+            && str_starts_with($actual, rtrim($base, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR);
     }
 }

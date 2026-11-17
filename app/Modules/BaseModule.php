@@ -214,15 +214,18 @@ abstract class BaseModule implements ModuleInterface
         $realModulePath = realpath($this->getModulePath());
         $realExpected = realpath($expectedPath);
 
-        if ($realModulePath === false || $realExpected === false || ! str_starts_with($realModulePath, $realExpected)) {
+        if ($realModulePath === false || $realExpected === false || $realModulePath !== $realExpected) {
             Log::error("Module path validation failed for: {$this->name}");
             throw new RuntimeException('Invalid module path');
         }
 
-        Artisan::call('migrate', [
+        $result = Artisan::call('migrate', [
             '--path' => 'app/Modules/'.$this->name.'/database/migrations',
             '--force' => true,
         ]);
+        if ($result !== 0) {
+            throw new RuntimeException('Module migrations did not complete successfully.');
+        }
     }
 
     protected function rollbackMigrations(): void
@@ -242,18 +245,22 @@ abstract class BaseModule implements ModuleInterface
         $realModulePath = realpath($this->getModulePath());
         $realExpected = realpath($expectedPath);
 
-        if ($realModulePath === false || $realExpected === false || ! str_starts_with($realModulePath, $realExpected)) {
+        if ($realModulePath === false || $realExpected === false || $realModulePath !== $realExpected) {
             Log::error("Module path validation failed for: {$this->name}");
             throw new RuntimeException('Invalid module path');
         }
 
         try {
-            Artisan::call('migrate:rollback', [
+            $result = Artisan::call('migrate:rollback', [
                 '--path' => 'app/Modules/'.$this->name.'/database/migrations',
                 '--force' => true,
             ]);
+            if ($result !== 0) {
+                throw new RuntimeException('Module migration rollback did not complete successfully.');
+            }
         } catch (\Throwable $e) {
             Log::warning("Failed to rollback migrations for {$this->getName()}: ".$e->getMessage());
+            throw $e;
         }
     }
 

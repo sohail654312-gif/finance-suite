@@ -16,6 +16,7 @@ use App\Models\XeroConnection;
 use App\Services\Concerns\RequestsProviderTokens;
 use App\Services\Concerns\ResolvesSyncedContacts;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -201,28 +202,30 @@ class XeroService
     {
         $rows = $this->client($connection)->get('/Quotes')->throw()->json()['Quotes'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['QuoteID'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['QuoteID'])) {
+                    continue;
+                }
+
+                Estimate::updateOrCreate(
+                    ['xero_id' => (string) $row['QuoteID'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['Contact'] ?? null, $connection->team_id),
+                        'estimate_number' => $row['QuoteNumber'] ?? 'XERO-'.$row['QuoteID'],
+                        'estimate_date' => $row['Date'] ?? now()->toDateString(),
+                        'expiration_date' => $row['ExpiryDate'] ?? null,
+                        'total_amount' => $row['Total'] ?? 0,
+                        'subtotal_amount' => $row['SubTotal'] ?? $row['Total'] ?? 0,
+                        'tax_amount' => $row['TotalTax'] ?? 0,
+                        'status' => strtolower((string) ($row['Status'] ?? 'draft')),
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            Estimate::updateOrCreate(
-                ['xero_id' => (string) $row['QuoteID'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['Contact'] ?? null, $connection->team_id),
-                    'estimate_number' => $row['QuoteNumber'] ?? 'XERO-'.$row['QuoteID'],
-                    'estimate_date' => $row['Date'] ?? now()->toDateString(),
-                    'expiration_date' => $row['ExpiryDate'] ?? null,
-                    'total_amount' => $row['Total'] ?? 0,
-                    'subtotal_amount' => $row['SubTotal'] ?? $row['Total'] ?? 0,
-                    'tax_amount' => $row['TotalTax'] ?? 0,
-                    'status' => strtolower((string) ($row['Status'] ?? 'draft')),
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCreditMemo(CreditMemo $creditMemo, XeroConnection $connection): CreditMemo
@@ -256,27 +259,29 @@ class XeroService
     {
         $rows = $this->client($connection)->get('/CreditNotes')->throw()->json()['CreditNotes'] ?? [];
 
-        foreach ($rows as $row) {
-            if (! isset($row['CreditNoteID'])) {
-                continue;
+        return DB::transaction(function () use ($rows, $connection): int {
+            foreach ($rows as $row) {
+                if (! isset($row['CreditNoteID'])) {
+                    continue;
+                }
+
+                CreditMemo::updateOrCreate(
+                    ['xero_id' => (string) $row['CreditNoteID'], 'team_id' => $connection->team_id],
+                    [
+                        'customer_id' => $this->resolveCustomerId($row['Contact'] ?? null, $connection->team_id),
+                        'credit_memo_number' => $row['CreditNoteNumber'] ?? 'XERO-'.$row['CreditNoteID'],
+                        'credit_memo_date' => $row['Date'] ?? now()->toDateString(),
+                        'total_amount' => $row['Total'] ?? 0,
+                        'subtotal_amount' => $row['SubTotal'] ?? $row['Total'] ?? 0,
+                        'tax_amount' => $row['TotalTax'] ?? 0,
+                        'status' => 'open',
+                        'team_id' => $connection->team_id,
+                    ],
+                );
             }
 
-            CreditMemo::updateOrCreate(
-                ['xero_id' => (string) $row['CreditNoteID'], 'team_id' => $connection->team_id],
-                [
-                    'customer_id' => $this->resolveCustomerId($row['Contact'] ?? null, $connection->team_id),
-                    'credit_memo_number' => $row['CreditNoteNumber'] ?? 'XERO-'.$row['CreditNoteID'],
-                    'credit_memo_date' => $row['Date'] ?? now()->toDateString(),
-                    'total_amount' => $row['Total'] ?? 0,
-                    'subtotal_amount' => $row['SubTotal'] ?? $row['Total'] ?? 0,
-                    'tax_amount' => $row['TotalTax'] ?? 0,
-                    'status' => 'open',
-                    'team_id' => $connection->team_id,
-                ],
-            );
-        }
-
-        return count($rows);
+            return count($rows);
+        });
     }
 
     public function pushCustomer(Customer $customer, XeroConnection $connection): Customer
@@ -508,7 +513,11 @@ class XeroService
         $rows = $this->client($connection)->get('/Payments')->throw()->json()['Payments'] ?? [];
 
         foreach ($rows as $row) {
-            $invoiceId = Invoice::where('xero_id', $row['Invoice']['InvoiceID'] ?? null)->where('team_id', $connection->team_id)->value('id');
+            $invoiceReference = $row['Invoice']['InvoiceID'] ?? null;
+            if ((! is_string($invoiceReference) && ! is_int($invoiceReference)) || trim((string) $invoiceReference) === '') {
+                continue;
+            }
+            $invoiceId = Invoice::where('xero_id', (string) $invoiceReference)->where('team_id', $connection->team_id)->value('id');
 
             if ($invoiceId === null) {
                 continue;

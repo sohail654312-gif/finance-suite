@@ -16,6 +16,7 @@ use Filament\Schemas\Components\EmbeddedSchema;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Edits the current tenant team's Vonage SMS-sending credentials.
@@ -42,14 +43,14 @@ class TeamNotificationSettings extends Page
     public static function canAccess(): bool
     {
         $user = Auth::user();
-        $tenant = Filament::getTenant();
+        $tenant = self::selectedTeam();
 
         return $user instanceof User && $tenant instanceof Team && $user->ownsTeam($tenant);
     }
 
     public function mount(): void
     {
-        $team = Filament::getTenant();
+        $team = self::selectedTeam();
 
         // Never re-show plaintext key/secret; only the non-secret sender id.
         $this->form->fill([
@@ -93,13 +94,13 @@ class TeamNotificationSettings extends Page
 
     public function save(): void
     {
-        $team = Filament::getTenant();
-
-        if (! $team instanceof Team) {
-            return;
-        }
-
-        $data = $this->data ?? [];
+        $team = self::selectedTeam();
+        abort_unless($team !== null && self::canAccess(), 403);
+        $data = Validator::make(['data' => $this->data ?? []], [
+            'data.vonage_from' => ['nullable', 'string', 'max:255'],
+            'data.vonage_key' => ['nullable', 'string', 'max:255'],
+            'data.vonage_secret' => ['nullable', 'string', 'max:255'],
+        ])->validate()['data'] ?? [];
 
         $attributes = ['vonage_from' => $data['vonage_from'] ?? null];
 
@@ -113,7 +114,15 @@ class TeamNotificationSettings extends Page
         }
 
         $team->update($attributes);
+        $this->data = ['vonage_from' => $team->vonage_from];
 
         Notification::make()->title('SMS settings saved')->success()->send();
+    }
+
+    private static function selectedTeam(): ?Team
+    {
+        $tenant = Filament::getTenant();
+
+        return $tenant === null ? null : Team::query()->find($tenant->getKey());
     }
 }

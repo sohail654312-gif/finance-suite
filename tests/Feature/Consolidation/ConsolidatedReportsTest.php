@@ -8,7 +8,9 @@ use App\Filament\App\Pages\ConsolidatedReports;
 use App\Models\ConsolidationGroup;
 use App\Models\Team;
 use App\Models\User;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class ConsolidatedReportsTest extends TestCase
@@ -69,5 +71,26 @@ class ConsolidatedReportsTest extends TestCase
         $page->generate();
 
         $this->assertNull($page->profitAndLoss);
+    }
+
+    public function test_reports_form_validates_dates_and_discards_previous_results_after_a_denied_selection(): void
+    {
+        $owner = User::factory()->create();
+        $team = $this->team($owner);
+        $group = ConsolidationGroup::create(['name' => 'Owned group', 'owner_team_id' => $team->id]);
+        $group->members()->sync([$team->id]);
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('app'));
+        Filament::setTenant($team);
+
+        $page = Livewire::test(ConsolidatedReports::class)
+            ->fillForm(['consolidation_group_id' => $group->id, 'start_date' => '2026-12-31', 'end_date' => '2026-01-01'])
+            ->call('generate')->assertHasErrors(['data.end_date'])
+            ->set('data.end_date', '2026-12-31')
+            ->call('generate')->assertHasNoErrors();
+        $this->assertArrayHasKey('consolidated', $page->get('profitAndLoss'));
+        $page->set('data.consolidation_group_id', 99999)
+            ->call('generate')
+            ->assertSet('profitAndLoss', null)->assertSet('balanceSheet', null)->assertSet('cashFlow', null);
     }
 }

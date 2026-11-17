@@ -10,8 +10,11 @@ use App\Models\Bill;
 use App\Models\User;
 use App\Services\ApprovalService;
 use App\Services\TeamManagementService;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -52,6 +55,36 @@ class PendingApprovalsPageTest extends TestCase
         $page = new PendingApprovals();
 
         $this->assertTrue($page->actionableStepsQuery()->get()->isEmpty());
+    }
+
+    public function test_pending_approvals_table_rejects_a_bill_with_a_reason_and_keeps_foreign_steps_hidden(): void
+    {
+        Notification::fake();
+        [$team, $manager] = $this->userWithRole('manager');
+        [$foreignTeam] = $this->userWithRole('manager');
+        $steps = [];
+        foreach ([$team, $foreignTeam] as $teamId) {
+            ApprovalRule::create(['team_id' => $teamId, 'approvable_type' => 'Bill', 'min_amount' => 0, 'steps' => ['manager'], 'is_active' => true]);
+            $bill = Bill::factory()->create(['team_id' => $teamId, 'total_amount' => 9000, 'approval_status' => 'draft']);
+            $bill->submitForApproval();
+            $steps[] = $bill->approvalRequest()->firstOrFail()->steps()->firstOrFail();
+        }
+        [$mine, $foreign] = $steps;
+        $this->actingAs($manager);
+        Filament::setCurrentPanel(Filament::getPanel('app'));
+        Filament::setTenant($manager->currentTeam);
+
+        Livewire::test(PendingApprovals::class)
+            ->assertCanSeeTableRecords([$mine])
+            ->assertCanNotSeeTableRecords([$foreign])
+            ->callAction(TestAction::make('reject')->table($mine), data: ['reason' => 'Supplier credit missing'])
+            ->assertHasNoActionErrors();
+        Livewire::test(PendingApprovals::class)
+            ->assertCanNotSeeTableRecords([$mine, $foreign]);
+
+        $this->assertSame('rejected', $mine->fresh()->status);
+        $this->assertSame('Supplier credit missing', $mine->fresh()->reason);
+        $this->assertSame('pending', $foreign->fresh()->status);
     }
 
     /** @return array{0:int,1:User} */

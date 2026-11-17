@@ -142,6 +142,49 @@ class PlaidBalanceTest extends TestCase
         $existingBalance->refresh();
         $this->assertEquals(1500.00, $existingBalance->current_balance);
         $this->assertEquals(1450.00, $existingBalance->available_balance);
+        $this->assertEquals($this->connection->team_id, $existingBalance->team_id);
+    }
+
+    public function test_rejected_balance_batch_does_not_commit_earlier_accounts(): void
+    {
+        $account = [
+            'account_id' => 'acc_valid', 'name' => 'Checking', 'type' => 'depository',
+            'balances' => ['current' => '50.25', 'iso_currency_code' => 'USD'],
+        ];
+        $invalidAccounts = [
+            ['named' => $account],
+            [$account, $account],
+            [$account, 'unavailable'],
+            [$account, array_replace($account, ['account_id' => 'acc_bad', 'balances' => ['current' => '0.001']])],
+            [$account, array_replace($account, ['account_id' => 'acc_bad', 'balances' => ['iso_currency_code' => 'US']])],
+            [$account, array_replace($account, ['account_id' => 'acc_bad', 'subtype' => ['unexpected']])],
+            [$account, array_replace($account, ['account_id' => '', 'name' => 'Missing identity'])],
+        ];
+
+        $responses = Http::sequence();
+        foreach ($invalidAccounts as $accounts) {
+            $responses->push(['accounts' => $accounts]);
+        }
+        Http::fake(['sandbox.plaid.com/accounts/balance/get' => $responses]);
+        $this->actingAs($this->user);
+        foreach ($invalidAccounts as $_) {
+            $this->getJson("/api/plaid/connections/{$this->connection->id}/balances")
+                ->assertStatus(500)->assertExactJson(['success' => false, 'message' => 'Failed to get balances.']);
+            $this->assertDatabaseCount('bank_account_balances', 0);
+        }
+    }
+
+    public function test_balance_provider_failure_leaves_persisted_snapshot_unchanged(): void
+    {
+        $balance = BankAccountBalance::create([
+            'bank_connection_id' => $this->connection->id, 'plaid_account_id' => 'acc_prior',
+            'account_name' => 'Checking', 'account_type' => 'depository', 'current_balance' => '12.75',
+        ]);
+        Http::fake(['sandbox.plaid.com/accounts/balance/get' => Http::response(['error' => 'private-provider-detail'], 400)]);
+
+        $this->actingAs($this->user)->getJson("/api/plaid/connections/{$this->connection->id}/balances")
+            ->assertStatus(500)->assertExactJson(['success' => false, 'message' => 'Failed to get balances.']);
+        $this->assertSame('12.75', $balance->refresh()->current_balance);
     }
 
     public function test_get_balances_prevents_cross_team_access(): void

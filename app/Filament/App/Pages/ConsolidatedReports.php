@@ -16,6 +16,7 @@ use Filament\Schemas\Components\EmbeddedSchema;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * Group-level consolidated financial statements. Pick a consolidation group +
@@ -81,7 +82,7 @@ class ConsolidatedReports extends Page
                     ->options(fn (): array => $this->visibleGroups())
                     ->required(),
                 DatePicker::make('start_date')->required(),
-                DatePicker::make('end_date')->required(),
+                DatePicker::make('end_date')->required()->afterOrEqual('start_date'),
             ])
             ->statePath('data');
     }
@@ -102,6 +103,9 @@ class ConsolidatedReports extends Page
 
     public function generate(): void
     {
+        // Discard errors from the previous attempt; this submission is revalidated below.
+        $this->resetValidation();
+        $this->profitAndLoss = $this->balanceSheet = $this->cashFlow = null;
         $data = $this->data ?? [];
         $groupId = (int) ($data['consolidation_group_id'] ?? 0);
 
@@ -110,6 +114,10 @@ class ConsolidatedReports extends Page
             return;
         }
 
+        $data = Validator::make(['data' => $data], [
+            'data.start_date' => ['required', 'date_format:Y-m-d'],
+            'data.end_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:data.start_date'],
+        ])->validate()['data'];
         $group = ConsolidationGroup::findOrFail($groupId);
         $start = Carbon::parse($data['start_date']);
         $end = Carbon::parse($data['end_date']);
