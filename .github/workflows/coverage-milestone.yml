@@ -60,7 +60,7 @@ jobs:
           tests/Feature/PaymentReminderBoundaryTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Verify reconciliation and finance regressions before full coverage
+      - name: Verify read-only reconciliation preview and finance regressions
         run: >-
           php artisan test --compact
           tests/Feature/BankStatementResourceIntegrityTest.php tests/Unit/Services/BankStatementImportServiceTest.php

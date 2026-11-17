@@ -12,8 +12,10 @@ use App\Models\User;
 use App\Services\BankStatementImportService;
 use App\Services\ReconciliationService;
 use App\Services\TeamManagementService;
+use Filament\Actions\Action;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -92,9 +94,16 @@ it('previews reconciled matches without altering their account or reconciliation
     Filament::setCurrentPanel(Filament::getPanel('app'));
     Filament::setTenant($team);
 
+    $preview = TestAction::make('view_discrepancies')->table($statement);
     Livewire::test(ListBankStatements::class)
-        ->mountAction(TestAction::make('view_discrepancies')->table($statement))
-        ->assertSee('Reconciliation Summary');
+        ->assertActionVisible($preview)
+        ->assertActionExists($preview, function (Action $action): bool {
+            $content = $action->getModalContent();
+            expect($content)->toBeInstanceOf(View::class);
+            expect($content->getData()['result']['matched_transactions'])->toBe(1);
+
+            return true;
+        });
     expect($transaction->fresh()->reconciled)->toBeFalse()
         ->and($transaction->fresh()->debit_account_id)->toBeNull()
         ->and($statement->fresh()->reconciled)->toBeFalse();
