@@ -280,7 +280,7 @@ class BankStatementResource extends Resource
                     ->modalHeading('Reconciliation Discrepancies')
                     ->modalContent(function (BankStatement $record): Factory|View {
                         $reconciliationService = app(ReconciliationService::class);
-                        $result = $reconciliationService->reconcile($record);
+                        $result = $reconciliationService->preview($record);
 
                         return view('filament.modals.reconciliation-discrepancies', [
                             'result' => $result,

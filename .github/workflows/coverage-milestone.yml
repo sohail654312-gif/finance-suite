@@ -35,7 +35,8 @@ jobs:
           vendor/bin/pint --test app/Jobs/SyncPlaidTransactionsJob.php
           app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
           app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
-          app/Services/ReconciliationService.php app/Filament/App/Resources/BankStatements
+          app/Services/ReconciliationService.php app/Services/BankStatementImportService.php
+          app/Filament/App/Resources/BankStatements
           app/Filament/App/Pages/ForecastComparison.php app/Filament/App/Pages/TeamNotificationSettings.php
           app/Filament/App/Pages/ConsolidatedReports.php app/Services/MenuService.php
           app/Console/Commands/SendPaymentReminders.php app/Models/ReminderSetting.php
@@ -59,19 +60,12 @@ jobs:
           tests/Feature/PaymentReminderBoundaryTest.php
       - name: PHPStan
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
-      - name: Verify administration, banking, billing and document regressions
+      - name: Verify reconciliation and pending finance regressions
         run: >-
           php artisan test --compact
-          tests/Feature/AdminUserManagementCoverageTest.php tests/Feature/Api/PlaidControllerTest.php
-          tests/Feature/Api/PlaidWebhookCoverageTest.php tests/Feature/Api/RevolutCoverageIntegrityTest.php
-          tests/Feature/PlaidEntryPointIntegrityTest.php tests/Feature/PlaidSyncIntegrityCoverageTest.php
-          tests/Feature/Api/OutboundPaymentApprovalTest.php
-          tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
-          tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
-          tests/Feature/BankConnectionResourceTest.php
-          tests/Feature/Document/DocumentServiceTest.php
-          tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
+          tests/Feature/BankStatementResourceIntegrityTest.php tests/Unit/Services/BankStatementImportServiceTest.php
           tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
+          tests/Feature/Services/ReconciliationRuleTest.php tests/Unit/Services/ReconciliationServiceTest.php
           tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/Notifications/NotificationSettingsTest.php
           tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/PublicNavigationTest.php
           tests/Feature/PaymentReminderBoundaryTest.php

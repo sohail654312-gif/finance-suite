@@ -6,11 +6,15 @@ use App\Filament\App\Resources\BankStatements\Pages\CreateBankStatement;
 use App\Filament\App\Resources\BankStatements\Pages\ListBankStatements;
 use App\Models\Account;
 use App\Models\BankStatement;
+use App\Models\ReconciliationRule;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\BankStatementImportService;
 use App\Services\ReconciliationService;
 use App\Services\TeamManagementService;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 it('lists only tenant statements and refuses to create one for another tenant account', function (): void {
@@ -63,4 +67,55 @@ it('does not reconcile a foreign transaction even when it references the same ac
         ->and($result['reconciled'])->toBeTrue()
         ->and($mine->fresh()->reconciled)->toBeTrue()
         ->and($foreign->fresh()->reconciled)->toBeFalse();
+});
+
+it('previews reconciled matches without altering their account or reconciliation status', function (): void {
+    $owner = User::factory()->create();
+    $team = app(TeamManagementService::class)->createPersonalTeamForUser($owner);
+    $bank = Account::factory()->create(['team_id' => $team->getKey()]);
+    $category = Account::factory()->create(['team_id' => $team->getKey()]);
+    $statement = BankStatement::factory()->create([
+        'team_id' => $team->getKey(), 'account_id' => $bank->getKey(),
+        'statement_date' => '2026-11-01', 'total_credits' => '10.00', 'total_debits' => '0.00',
+    ]);
+    $transaction = Transaction::factory()->create([
+        'team_id' => $team->getKey(), 'account_id' => $bank->getKey(), 'bank_statement_id' => $statement->getKey(),
+        'transaction_date' => '2026-11-02', 'description' => 'Supplier refund', 'amount' => '10.00',
+        'debit_account_id' => null, 'reconciled' => false,
+    ]);
+    ReconciliationRule::create([
+        'team_id' => $team->getKey(), 'name' => 'Refund', 'match_field' => 'description',
+        'match_operator' => 'contains', 'match_value' => 'refund', 'action_account_id' => $category->getKey(),
+        'priority' => 1, 'is_active' => true,
+    ]);
+    $this->actingAs($owner->fresh());
+    Filament::setCurrentPanel(Filament::getPanel('app'));
+    Filament::setTenant($team);
+
+    Livewire::test(ListBankStatements::class)
+        ->mountAction(TestAction::make('view_discrepancies')->table($statement))
+        ->assertSee('Reconciliation Summary');
+    expect($transaction->fresh()->reconciled)->toBeFalse()
+        ->and($transaction->fresh()->debit_account_id)->toBeNull()
+        ->and($statement->fresh()->reconciled)->toBeFalse();
+
+    Livewire::test(ListBankStatements::class)
+        ->callAction(TestAction::make('reconcile')->table($statement))
+        ->assertHasNoActionErrors();
+    expect($transaction->fresh()->reconciled)->toBeTrue()
+        ->and($transaction->fresh()->debit_account_id)->toBe($category->getKey())
+        ->and($statement->fresh()->reconciled)->toBeTrue();
+});
+
+it('retains statement ownership on an import without an authenticated session', function (): void {
+    $team = app(TeamManagementService::class)->createPersonalTeamForUser(User::factory()->create());
+    $account = Account::factory()->create(['team_id' => $team->getKey()]);
+    $statement = BankStatement::factory()->create(['team_id' => $team->getKey(), 'account_id' => $account->getKey()]);
+    $disk = Storage::fake('local');
+    $disk->put('statement.csv', "Date,Description,Amount\n2026-11-02,Refund,10.00\n");
+
+    $transaction = app(BankStatementImportService::class)->importFromCsv($disk->path('statement.csv'), $statement)->sole()->fresh();
+    expect($transaction->team_id)->toBe($team->getKey())
+        ->and($transaction->bank_statement_id)->toBe($statement->getKey())
+        ->and($transaction->reconciled)->toBeFalse();
 });

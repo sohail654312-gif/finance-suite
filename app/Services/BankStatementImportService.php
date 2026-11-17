@@ -28,6 +28,7 @@ class BankStatementImportService
                     'amount' => $this->parseAmount($data[2]),
                     'account_id' => $bankStatement->account_id,
                     'bank_statement_id' => $bankStatement->id,
+                    'team_id' => $bankStatement->team_id,
                     'reconciled' => false,
                 ]);
 
@@ -55,6 +56,7 @@ class BankStatementImportService
                     'amount' => $this->parseAmount((string) $txn->TRNAMT),
                     'account_id' => $bankStatement->account_id,
                     'bank_statement_id' => $bankStatement->id,
+                    'team_id' => $bankStatement->team_id,
                     'reconciled' => false,
                 ]);
 
@@ -132,6 +134,7 @@ class BankStatementImportService
                     'amount' => $amount,
                     'account_id' => $bankStatement->account_id,
                     'bank_statement_id' => $bankStatement->id,
+                    'team_id' => $bankStatement->team_id,
                     'reconciled' => false,
                 ]);
 
@@ -164,6 +167,7 @@ class BankStatementImportService
                 'amount' => $this->parseAmount($record['T'] ?? ($record['U'] ?? '0')),
                 'account_id' => $bankStatement->account_id,
                 'bank_statement_id' => $bankStatement->id,
+                'team_id' => $bankStatement->team_id,
                 'reconciled' => false,
             ]);
 
