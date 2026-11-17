@@ -1,4 +1,4 @@
-name: Minimum phpseclib security proposal
+name: Minimum Laravel security proposal
 on:
   push:
     branches: [finance-suite/coverage-security-85-90-20261106]
@@ -22,7 +22,7 @@ jobs:
       - run: composer validate --strict
       - name: Resolve the advisory-affected package
         run: >-
-          composer update phpseclib/phpseclib:3.0.58
+          composer update laravel/framework:13.40.0
           --minimal-changes --no-install --no-scripts --no-interaction --no-progress
       - name: Verify genuine lock and clean audit
         run: |
@@ -33,7 +33,7 @@ jobs:
           sha256sum composer.lock > composer.lock.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: phpseclib-minimum-patched-lock
+          name: laravel-minimum-patched-lock
           path: |
             composer.lock
             composer.lock.sha256
