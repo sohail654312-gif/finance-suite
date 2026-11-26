@@ -98,16 +98,25 @@ it('rejects draft and foreign persisted journal links on retry', function (strin
         'team_id' => $foreign ? $otherTeam->id : $this->postingTeam->id,
         'user_id' => $foreign ? $otherUser->id : $this->postingTeam->user_id,
     ]);
+    if ($foreign) {
+        app(TenantProvisioningService::class)->provisionChartOfAccounts($otherTeam);
+        $accounts = Account::where('team_id', $otherTeam->id)->get()->keyBy('account_number');
+        $journal->lines()->create(['account_id' => $accounts[1000]->id, 'debit_amount' => '100.01', 'credit_amount' => '0.00']);
+        $journal->lines()->create(['account_id' => $accounts[4000]->id, 'debit_amount' => '0.00', 'credit_amount' => '100.01']);
+        $journal->post();
+    }
     $source->update(['journal_entry_id' => $journal->id]);
     $service = $kind === 'invoice' ? app(InvoicePostingService::class) : app(PaymentPostingService::class);
     expect(fn () => $service->post($source))->toThrow(RuntimeException::class, 'invalid journal');
-    expect(JournalEntry::count())->toBe(1)->and($journal->fresh()->is_posted)->toBeFalse();
+    expect(JournalEntry::count())->toBe(1)->and($journal->fresh()->is_posted)->toBe($foreign);
 })->with([['invoice', false], ['invoice', true], ['payment', false], ['payment', true]]);
 
 it('rejects revenue schedules with a changed amount or foreign team before posting', function (bool $foreign): void {
     $accounts = Account::where('team_id', $this->postingTeam->id)->get()->keyBy('account_number');
     $schedule = app(RevenueRecognitionService::class)->createFromInvoice($this->postingInvoice, 3, $accounts[2400], $accounts[4000]);
-    $schedule->update($foreign ? ['team_id' => null] : ['total_amount' => '100.00']);
+    $otherUser = User::factory()->create();
+    $otherTeam = Team::forceCreate(['user_id' => $otherUser->id, 'name' => 'Foreign schedule', 'personal_team' => false]);
+    $schedule->update($foreign ? ['team_id' => $otherTeam->id] : ['total_amount' => '100.00']);
     expect(fn () => app(InvoicePostingService::class)->post($this->postingInvoice))->toThrow(RuntimeException::class, 'schedule must match');
     expect(JournalEntry::count())->toBe(0)->and($this->postingInvoice->fresh()->journal_entry_id)->toBeNull();
 })->with([false, true]);
@@ -129,7 +138,9 @@ it('excludes a foreign payment and a payment linked to an unposted journal from 
     expect($this->postingInvoice->fresh()->payment_status)->toBe('pending');
     $this->postingPayment->update(['journal_entry_id' => null]);
     app(PaymentPostingService::class)->post($this->postingPayment);
-    $this->postingPayment->update(['team_id' => null]);
+    $otherUser = User::factory()->create();
+    $otherTeam = Team::forceCreate(['user_id' => $otherUser->id, 'name' => 'Foreign payment', 'personal_team' => false]);
+    $this->postingPayment->update(['team_id' => $otherTeam->id]);
     $this->postingInvoice->recomputePaymentStatus();
     expect($this->postingInvoice->fresh()->payment_status)->toBe('pending');
 });

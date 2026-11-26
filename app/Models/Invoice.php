@@ -109,6 +109,9 @@ class Invoice extends Model implements ApprovableRecord, Documentable
         return $this->hasMany(InvoiceItem::class, 'invoice_id');
     }
 
+    /**
+     * @return HasMany<Payment, $this>
+     */
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class, 'invoice_id');

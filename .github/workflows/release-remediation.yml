@@ -177,3 +177,18 @@ jobs:
 
       - name: Verify competing subledger posting requests
         run: vendor/bin/pest --compact tests/Postgres/SubledgerPostingConcurrencyTest.php
+      - name: Prove isolated PostgreSQL backup and restore
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U finance_test -d finance_suite_test --format=custom > "$RUNNER_TEMP/finance-suite.dump"
+          docker exec "$POSTGRES_CONTAINER" createdb -U finance_test finance_suite_restore
+          docker exec -i "$POSTGRES_CONTAINER" pg_restore -U finance_test -d finance_suite_restore --exit-on-error < "$RUNNER_TEMP/finance-suite.dump"
+          for table in users teams accounts invoices payments journal_entries journal_entry_lines migrations; do
+            query="SELECT md5(COALESCE(string_agg(row_to_json(t)::text, '' ORDER BY row_to_json(t)::text), '')) FROM $table t"
+            before=$(docker exec "$POSTGRES_CONTAINER" psql -U finance_test -d finance_suite_test -Atc "$query")
+            after=$(docker exec "$POSTGRES_CONTAINER" psql -U finance_test -d finance_suite_restore -Atc "$query")
+            test "$before" = "$after"
+            echo "Restored $table: exact persisted rows agree"
+          done
