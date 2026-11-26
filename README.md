@@ -1,6 +1,10 @@
 # Liberu Accounting ERP
 
-> Production-ready accounting and ERP application for ledgers, banking, tax, expenses, approvals, and reporting.
+> Accounting and ERP application for ledgers, banking, tax, expenses, approvals, and reporting.
+>
+> **Codeedge Finance Suite V1 is not release accepted.** The mandatory 100% host coverage,
+> integrated financial lifecycle and operational gates remain open. See the
+> [current completion checkpoint](PROJECT-DOCS/AUTONOMOUS-COMPLETION-20261126.md).
 
 [Software](https://liberusoftware.com) · [Hosting](https://liberuhosting.com) · [Services](https://liberuservices.com) · [Liberu Group](https://liberugroup.com)
 
