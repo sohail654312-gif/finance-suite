@@ -116,12 +116,18 @@ class Invoice extends Model implements ApprovableRecord, Documentable
 
     public function recomputePaymentStatus(): void
     {
-        $paid = (float) $this->payments()->whereNotNull('journal_entry_id')->sum('payment_amount');
-        $total = (float) $this->total_amount;
+        $paid = '0.00';
+        $payments = $this->payments()->where('team_id', $this->team_id)
+            ->whereHas('journalEntry', fn ($query) => $query->where('team_id', $this->team_id)->where('is_posted', true))
+            ->cursor();
+        foreach ($payments as $payment) {
+            $paid = bcadd($paid, (string) $payment->payment_amount, 2);
+        }
+        $total = (string) $this->total_amount;
 
-        if ($total > 0.0 && $paid >= $total) {
+        if (bccomp($total, '0', 2) > 0 && bccomp($paid, $total, 2) >= 0) {
             $this->payment_status = 'paid';
-        } elseif ($paid > 0.0) {
+        } elseif (bccomp($paid, '0', 2) > 0) {
             $this->payment_status = 'partial';
         } else {
             $this->payment_status = 'pending';

@@ -23,45 +23,45 @@ class InvoicePostingService
 {
     public function post(Invoice $invoice): JournalEntry
     {
-        if ($invoice->journal_entry_id !== null) {
-            $existing = $invoice->journalEntry;
-
-            return $existing instanceof JournalEntry ? $existing : throw new RuntimeException('Invoice linked to a missing journal entry.');
-        }
-
-        $teamId = (int) $invoice->team_id;
-        $receivable = $this->resolveByNumber($teamId, 1100);
-
-        $schedule = RevenueSchedule::where('invoice_id', $invoice->getKey())->first();
-        $credit = $schedule instanceof RevenueSchedule
-            ? $this->resolveById($teamId, (int) $schedule->deferred_account_id)
-            : $this->resolveByNumber($teamId, 4000);
-
-        // ponytail: RevenueSchedule.total_amount is frozen at schedule-creation time;
-        // if line items change between scheduling and posting, this posts the invoice's
-        // current total while the schedule still recognizes the frozen amount, leaving
-        // a residual in Deferred Revenue. Accepted for this slice.
-        $amount = $invoice->total_amount;
-
-        return DB::transaction(function () use ($invoice, $receivable, $credit, $amount, $teamId, $schedule): JournalEntry {
-            $locked = Invoice::whereKey($invoice->getKey())->lockForUpdate()->first();
-            if ($locked instanceof Invoice && $locked->journal_entry_id !== null) {
-                $existing = $locked->journalEntry;
-
-                return $existing instanceof JournalEntry ? $existing : throw new RuntimeException('Invoice linked to a missing journal entry.');
+        $entry = DB::transaction(function () use ($invoice): JournalEntry {
+            $source = Invoice::query()->whereKey($invoice->getKey())->lockForUpdate()->firstOrFail();
+            $teamId = (int) $source->team_id;
+            if ($teamId < 1) {
+                throw new RuntimeException('Invoice must belong to a team.');
             }
+            if ($source->journal_entry_id !== null) {
+                $existing = $source->journalEntry;
+                if (! $existing instanceof JournalEntry || (int) $existing->team_id !== $teamId || ! $existing->is_posted) {
+                    throw new RuntimeException('Invoice linked to an invalid journal entry.');
+                }
+
+                return $existing;
+            }
+            $amount = (string) $source->total_amount;
+            if (bccomp($amount, '0', 2) <= 0) {
+                throw new RuntimeException('Invoice amount must be positive.');
+            }
+            $receivable = $this->resolveByNumber($teamId, 1100);
+            $schedule = RevenueSchedule::query()->where('invoice_id', $source->getKey())->lockForUpdate()->first();
+            if ($schedule instanceof RevenueSchedule
+                && ((int) $schedule->team_id !== $teamId || bccomp((string) $schedule->total_amount, $amount, 2) !== 0)) {
+                throw new RuntimeException('Revenue schedule must match the invoice team and total.');
+            }
+            $credit = $schedule instanceof RevenueSchedule
+                ? $this->resolveById($teamId, (int) $schedule->deferred_account_id)
+                : $this->resolveByNumber($teamId, 4000);
 
             $entry = new JournalEntry();
             // team_id + user_id are NOT fillable and there is no auth() here; set
             // them explicitly so the entry is team-scoped (never default team 1)
             // and satisfies the non-nullable user_id FK (team owner).
             $entry->forceFill([
-                'entry_date' => $invoice->invoice_date,
+                'entry_date' => $source->invoice_date,
                 'entry_type' => 'general',
-                'reference_number' => (string) $invoice->getKey(),
-                'memo' => 'Invoice '.$invoice->invoice_number,
+                'reference_number' => (string) $source->getKey(),
+                'memo' => 'Invoice '.$source->invoice_number,
                 'team_id' => $teamId,
-                'user_id' => $invoice->team?->user_id,
+                'user_id' => $source->team?->user_id,
             ])->save();
 
             $entry->lines()->create([
@@ -79,10 +79,13 @@ class InvoicePostingService
 
             $entry->post();
 
-            $invoice->forceFill(['journal_entry_id' => $entry->getKey()])->save();
+            $source->forceFill(['journal_entry_id' => $entry->getKey()])->save();
 
             return $entry;
         });
+        $invoice->refresh();
+
+        return $entry;
     }
 
     private function resolveByNumber(int $teamId, int $number): Account

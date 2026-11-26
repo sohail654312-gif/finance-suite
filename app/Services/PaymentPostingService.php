@@ -22,33 +22,39 @@ class PaymentPostingService
 {
     public function post(Payment $payment): JournalEntry
     {
-        if ($payment->journal_entry_id !== null) {
-            $existing = $payment->journalEntry;
-
-            return $existing instanceof JournalEntry ? $existing : throw new RuntimeException('Payment linked to a missing journal entry.');
-        }
-
-        $teamId = (int) $payment->team_id;
-        $cash = $this->resolveByNumber($teamId, 1000);
-        $receivable = $this->resolveByNumber($teamId, 1100);
-        $amount = $payment->payment_amount;
-
-        return DB::transaction(function () use ($payment, $cash, $receivable, $amount, $teamId): JournalEntry {
-            $locked = Payment::whereKey($payment->getKey())->lockForUpdate()->first();
-            if ($locked instanceof Payment && $locked->journal_entry_id !== null) {
-                $existing = $locked->journalEntry;
-
-                return $existing instanceof JournalEntry ? $existing : throw new RuntimeException('Payment linked to a missing journal entry.');
+        $entry = DB::transaction(function () use ($payment): JournalEntry {
+            $source = Payment::query()->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
+            $teamId = (int) $source->team_id;
+            if ($teamId < 1) {
+                throw new RuntimeException('Payment must belong to a team.');
             }
+            $invoice = $source->invoice()->lockForUpdate()->first();
+            if (! $invoice instanceof \App\Models\Invoice || (int) $invoice->team_id !== $teamId) {
+                throw new RuntimeException('Payment invoice must belong to the same team.');
+            }
+            if ($source->journal_entry_id !== null) {
+                $existing = $source->journalEntry;
+                if (! $existing instanceof JournalEntry || (int) $existing->team_id !== $teamId || ! $existing->is_posted) {
+                    throw new RuntimeException('Payment linked to an invalid journal entry.');
+                }
+
+                return $existing;
+            }
+            $amount = (string) $source->payment_amount;
+            if (bccomp($amount, '0', 2) <= 0) {
+                throw new RuntimeException('Payment amount must be positive.');
+            }
+            $cash = $this->resolveByNumber($teamId, 1000);
+            $receivable = $this->resolveByNumber($teamId, 1100);
 
             $entry = new JournalEntry();
             $entry->forceFill([
-                'entry_date' => $payment->payment_date,
+                'entry_date' => $source->payment_date,
                 'entry_type' => 'general',
-                'reference_number' => (string) $payment->getKey(),
-                'memo' => 'Payment '.$payment->getKey(),
+                'reference_number' => (string) $source->getKey(),
+                'memo' => 'Payment '.$source->getKey(),
                 'team_id' => $teamId,
-                'user_id' => $payment->team?->user_id,
+                'user_id' => $source->team?->user_id,
             ])->save();
 
             $entry->lines()->create([
@@ -66,17 +72,14 @@ class PaymentPostingService
 
             $entry->post();
 
-            $payment->forceFill(['journal_entry_id' => $entry->getKey()])->save();
-
-            $this->updateInvoiceStatus($payment);
+            $source->forceFill(['journal_entry_id' => $entry->getKey()])->save();
+            $invoice->recomputePaymentStatus();
 
             return $entry;
         });
-    }
+        $payment->refresh();
 
-    private function updateInvoiceStatus(Payment $payment): void
-    {
-        $payment->invoice?->recomputePaymentStatus();
+        return $entry;
     }
 
     private function resolveByNumber(int $teamId, int $number): Account
