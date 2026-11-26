@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kubernetes Deployment Script for Liberu Boilerplate Laravel
 
-set -e
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,6 +12,7 @@ NAMESPACE="${NAMESPACE:-accounting-erp-laravel}"
 ENVIRONMENT="${ENVIRONMENT:-production}"
 DOMAIN="${DOMAIN:-accounting.example.com}"
 IMAGE_TAG="${IMAGE_TAG:-}"
+IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-ghcr.io/liberusoftware/accounting-erp-laravel}"
 APP_KEY="${APP_KEY:-}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-}"
@@ -32,6 +33,10 @@ if [ "$ENVIRONMENT" = "production" ] && [[ ! "$IMAGE_TAG" =~ ^v[0-9]+\.[0-9]+\.[
     error "IMAGE_TAG must be a semantic version tag such as v2.0.0"
     exit 1
 fi
+if [[ ! "$IMAGE_REPOSITORY" =~ ^ghcr\.io/[a-z0-9][a-z0-9._/-]+$ ]]; then
+    error "IMAGE_REPOSITORY must be a lowercase GitHub Container Registry path"
+    exit 1
+fi
 
 info "Creating namespace: $NAMESPACE"
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
@@ -49,7 +54,7 @@ kubectl create secret generic accounting-erp-secrets \
 info "Deploying to $ENVIRONMENT..."
 if [ "$ENVIRONMENT" = "production" ]; then
     kubectl kustomize "k8s/overlays/$ENVIRONMENT" \
-        | sed "s#ghcr.io/liberusoftware/accounting-erp-laravel:v2.0.0#ghcr.io/liberusoftware/accounting-erp-laravel:${IMAGE_TAG}#g" \
+        | sed "s#ghcr.io/liberusoftware/accounting-erp-laravel:v2.0.0#${IMAGE_REPOSITORY}:${IMAGE_TAG}#g" \
         | kubectl apply -f -
 else
     kubectl apply -k "k8s/overlays/$ENVIRONMENT"
@@ -57,7 +62,7 @@ fi
 
 info "Waiting for deployment..."
 kubectl wait --for=condition=available --timeout=300s \
-    deployment/accounting-erp-laravel -n "$NAMESPACE" || warn "Timeout waiting for deployment"
+    deployment/accounting-erp-laravel -n "$NAMESPACE"
 
 info "Deployment complete!"
 echo ""

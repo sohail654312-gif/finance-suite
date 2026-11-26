@@ -6,7 +6,6 @@ namespace: accounting-erp-laravel
 resources:
 - namespace.yaml
 - configmap.yaml
-- secret.yaml
 - pvc.yaml
 - mysql-statefulset.yaml
 - redis.yaml

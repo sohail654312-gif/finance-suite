@@ -70,6 +70,17 @@ for users, teams, accounts, invoices, payments, journals, lines and migrations.
 This is an isolated synthetic restoration check, not a production backup service,
 storage backup, retention policy or recovery-time guarantee.
 
+Deployment corrections preserve both existing image-version aliases and the exact
+tag alias consumed by deployment. The workflow selects its own repository's image;
+the deployment script accepts a validated repository override, propagates render
+and readiness failures, and keeps generated credentials separate from example
+secrets. Both overlays now merge the base ConfigMap's explicit namespace. New
+command-capture tests use a fake kubectl for every mutation and the real local
+manifest renderer; they never contact a cluster. These tests do not prove an
+actual production rollout. When applying Kustomize manually, provision the
+required `accounting-erp-secrets` separately; `k8s/base/secret.yaml` is an example
+and is deliberately excluded from applied resources.
+
 Local Actionlint 1.7.12 validates the changed workflows; its downloaded ZIP was
 verified against the release checksum. A limited current-tree credential-pattern
 scan found no matches; that is not a full history or exhaustive secret audit.
