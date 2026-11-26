@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Account;
+use App\Models\Invoice;
 use App\Models\JournalEntry;
 use App\Models\Payment;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class PaymentPostingService
                 throw new RuntimeException('Payment must belong to a team.');
             }
             $invoice = $source->invoice()->lockForUpdate()->first();
-            if (! $invoice instanceof \App\Models\Invoice || (int) $invoice->team_id !== $teamId) {
+            if (! $invoice instanceof Invoice || (int) $invoice->team_id !== $teamId) {
                 throw new RuntimeException('Payment invoice must belong to the same team.');
             }
             if ($source->journal_entry_id !== null) {

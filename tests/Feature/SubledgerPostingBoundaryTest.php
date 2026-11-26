@@ -13,6 +13,7 @@ use App\Services\InvoicePostingService;
 use App\Services\PaymentPostingService;
 use App\Services\RevenueRecognitionService;
 use App\Services\TenantProvisioningService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 beforeEach(function (): void {
     $user = User::factory()->create();
@@ -64,7 +65,7 @@ it('rejects deleted sources without leaving journals or account effects', functi
     $source = $kind === 'invoice' ? $this->postingInvoice : $this->postingPayment;
     $source->delete();
     $service = $kind === 'invoice' ? app(InvoicePostingService::class) : app(PaymentPostingService::class);
-    expect(fn () => $service->post($source))->toThrow(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+    expect(fn () => $service->post($source))->toThrow(ModelNotFoundException::class);
     expect(JournalEntry::count())->toBe(0)
         ->and(Account::where('team_id', $this->postingTeam->id)->where('balance', '!=', 0)->count())->toBe(0);
 })->with(['invoice', 'payment']);
