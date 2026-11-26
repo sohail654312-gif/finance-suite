@@ -67,6 +67,7 @@ jobs:
           app/Services/PaymentPostingService.php tests/Feature/SubledgerPostingBoundaryTest.php
           tests/Postgres/SubledgerPostingConcurrencyTest.php tests/Feature/BankConnectionDisconnectBoundaryTest.php
           tests/Unit/DeploymentContractTest.php
+          tests/Feature/PostingReversal/RecomputeStatusTest.php
           app/Jobs/SyncPlaidTransactionsJob.php
           app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
           app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
@@ -106,6 +107,7 @@ jobs:
           tests/Feature/PaymentReminderBoundaryTest.php
           tests/Feature/SubledgerPostingBoundaryTest.php tests/Feature/InvoicePosting
           tests/Feature/PaymentPosting tests/Feature/BankConnectionDisconnectBoundaryTest.php
+          tests/Feature/PostingReversal
           tests/Unit/DeploymentContractTest.php
       - name: Enforce locked dependency audit
         if: always()
