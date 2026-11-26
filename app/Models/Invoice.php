@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property int|null $team_id
@@ -119,24 +120,28 @@ class Invoice extends Model implements ApprovableRecord, Documentable
 
     public function recomputePaymentStatus(): void
     {
-        $paid = '0.00';
-        $payments = $this->payments()->where('team_id', $this->team_id)
-            ->whereHas('journalEntry', fn ($query) => $query->where('team_id', $this->team_id)->where('is_posted', true))
-            ->cursor();
-        foreach ($payments as $payment) {
-            $paid = bcadd($paid, (string) $payment->payment_amount, 2);
-        }
-        $total = (string) $this->total_amount;
+        DB::transaction(function (): void {
+            $invoice = static::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+            $paid = '0.00';
+            $payments = $invoice->payments()->where('team_id', $invoice->team_id)
+                ->whereHas('journalEntry', fn ($query) => $query->where('team_id', $invoice->team_id)->where('is_posted', true))
+                ->cursor();
+            foreach ($payments as $payment) {
+                $paid = bcadd($paid, (string) $payment->payment_amount, 2);
+            }
+            $total = (string) $invoice->total_amount;
 
-        if (bccomp($total, '0', 2) > 0 && bccomp($paid, $total, 2) >= 0) {
-            $this->payment_status = 'paid';
-        } elseif (bccomp($paid, '0', 2) > 0) {
-            $this->payment_status = 'partial';
-        } else {
-            $this->payment_status = 'pending';
-        }
+            if (bccomp($total, '0', 2) > 0 && bccomp($paid, $total, 2) >= 0) {
+                $invoice->payment_status = 'paid';
+            } elseif (bccomp($paid, '0', 2) > 0) {
+                $invoice->payment_status = 'partial';
+            } else {
+                $invoice->payment_status = 'pending';
+            }
 
-        $this->save();
+            $invoice->save();
+        });
+        $this->refresh();
     }
 
     public function journalEntry(): BelongsTo
