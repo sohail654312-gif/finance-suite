@@ -19,6 +19,12 @@ jobs:
           persist-credentials: false
       - name: Build the application image without publishing
         run: docker build --tag finance-suite:verification .
+      - name: Validate existing deployment manifests without deployment
+        run: |
+          cp .env.testing .env
+          docker compose config --quiet
+          kubectl kustomize k8s/overlays/development > /dev/null
+          kubectl kustomize k8s/overlays/production > /dev/null
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -51,6 +57,10 @@ jobs:
           composer install --no-interaction --prefer-dist --optimize-autoloader
           git restore --source=HEAD --worktree -- modules themes
           php artisan key:generate
+      - name: Validate module manifests and foundation configuration
+        run: |
+          php artisan module:validate
+          php artisan foundation:doctor
       - name: Pint for the repaired files
         run: >-
           vendor/bin/pint --test app/Models/Invoice.php app/Services/InvoicePostingService.php
@@ -119,8 +129,11 @@ jobs:
           composer install --no-interaction --prefer-dist --optimize-autoloader
           git restore --source=HEAD --worktree -- modules themes
           php artisan key:generate
+      - name: Full repository formatting gate
+        run: vendor/bin/pint --test
       - name: Full tests and 100% release coverage gate
         id: full_tests
+        if: always() && !cancelled()
         run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml --log-junit=junit.xml
       - name: Independent host coverage verification
         if: always() && steps.full_tests.outcome != 'skipped'
