@@ -68,6 +68,9 @@ jobs:
           tests/Postgres/SubledgerPostingConcurrencyTest.php tests/Feature/BankConnectionDisconnectBoundaryTest.php
           tests/Unit/DeploymentContractTest.php
           tests/Feature/PostingReversal/RecomputeStatusTest.php
+          tests/Feature/ReconciliationPrecisionBoundaryTest.php tests/Feature/AiAutomationTenantBoundaryTest.php
+          modules/accounting-copilot-api/src/Http/Controllers/CopilotRequestController.php
+          modules/accounting-automation-pack-api/src/Http/Controllers/AutomationRecipeController.php
           app/Jobs/SyncPlaidTransactionsJob.php
           app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
           app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
@@ -108,6 +111,7 @@ jobs:
           tests/Feature/SubledgerPostingBoundaryTest.php tests/Feature/InvoicePosting
           tests/Feature/PaymentPosting tests/Feature/BankConnectionDisconnectBoundaryTest.php
           tests/Feature/PostingReversal
+          tests/Feature/ReconciliationPrecisionBoundaryTest.php tests/Feature/AiAutomationTenantBoundaryTest.php
           tests/Unit/DeploymentContractTest.php
       - name: Enforce locked dependency audit
         if: always()
