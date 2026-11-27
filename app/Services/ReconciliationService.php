@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\Account;
 use App\Models\BankStatement;
 use App\Models\ReconciliationRule;
 use App\Models\Transaction;
 use Carbon\Carbon;
+use DomainException;
 use Illuminate\Support\Facades\DB;
 
 class ReconciliationService
@@ -24,7 +26,7 @@ class ReconciliationService
             $result = $this->reconcile($statement);
 
             $reconciled = (int) $result['unmatched_transactions'] === 0
-                && abs((float) $result['balance_discrepancy']) < 0.01;
+                && bccomp($result['balance_discrepancy'], '0.00', 2) === 0;
             $statement->update(['reconciled' => $reconciled]);
             $bankStatement->refresh();
 
@@ -41,7 +43,7 @@ class ReconciliationService
 
     public function reconcile(BankStatement $bankStatement): array
     {
-        return $this->evaluate($bankStatement, persist: true);
+        return DB::transaction(fn (): array => $this->evaluate($bankStatement, persist: true));
     }
 
     private function evaluate(BankStatement $bankStatement, bool $persist): array
@@ -49,13 +51,13 @@ class ReconciliationService
         $transactions = Transaction::where('account_id', $bankStatement->account_id)
             ->where('team_id', $bankStatement->team_id)
             ->whereBetween('transaction_date', [
-                $bankStatement->statement_date->startOfMonth(),
-                $bankStatement->statement_date->endOfMonth(),
+                $bankStatement->statement_date->copy()->startOfMonth(),
+                $bankStatement->statement_date->copy()->endOfMonth(),
             ])
             ->get();
 
-        $totalCredits = 0;
-        $totalDebits = 0;
+        $totalCredits = '0.00';
+        $totalDebits = '0.00';
         $matchedTransactions = collect();
         $unmatchedTransactions = collect();
         $discrepancies = collect();
@@ -69,15 +71,21 @@ class ReconciliationService
             ->get();
 
         foreach ($transactions as $transaction) {
-            $amount = (float) $transaction->amount;
-            if ($amount > 0) {
-                $totalCredits += $amount;
+            $amount = (string) $transaction->amount;
+            if (bccomp($amount, '0.00', 2) > 0) {
+                $totalCredits = bcadd($totalCredits, $amount, 2);
             } else {
-                $totalDebits += abs($amount);
+                $totalDebits = bcsub($totalDebits, $amount, 2);
             }
 
             // User-defined rules take precedence; fall back to the built-in heuristic.
             $rule = $rules->first(fn (ReconciliationRule $rule): bool => $this->ruleMatches($rule, $transaction));
+            if ($rule?->action_account_id !== null && ! Account::query()
+                ->whereKey($rule->action_account_id)
+                ->where('team_id', $bankStatement->team_id)
+                ->exists()) {
+                throw new DomainException('Reconciliation rule action account must belong to the statement team.');
+            }
             $matched = $rule !== null || $this->findMatch($transaction, $bankStatement);
 
             if ($matched) {
@@ -98,15 +106,16 @@ class ReconciliationService
             }
         }
 
-        $balanceDiscrepancy = ($totalCredits - $totalDebits) -
-            ($bankStatement->total_credits - $bankStatement->total_debits);
+        $actualBalance = bcsub($totalCredits, $totalDebits, 2);
+        $statementBalance = bcsub((string) $bankStatement->total_credits, (string) $bankStatement->total_debits, 2);
+        $balanceDiscrepancy = bcsub($actualBalance, $statementBalance, 2);
 
-        if ($balanceDiscrepancy != 0) {
+        if (bccomp($balanceDiscrepancy, '0.00', 2) !== 0) {
             $discrepancies->push([
                 'type' => 'balance_mismatch',
                 'amount' => $balanceDiscrepancy,
                 'expected' => $bankStatement->ending_balance,
-                'actual' => $totalCredits - $totalDebits,
+                'actual' => $actualBalance,
             ]);
         }
 
@@ -159,11 +168,32 @@ class ReconciliationService
             'contains' => $rule->match_value !== ''
                 && stripos($field, (string) $rule->match_value) !== false,
             'equals' => $rule->match_field === 'amount'
-                ? abs((float) $transaction->amount - (float) $rule->match_value) < 0.001
+                ? $this->compareRuleAmount((string) $transaction->amount, (string) $rule->match_value) === 0
                 : $field === (string) $rule->match_value,
-            'between' => (float) $transaction->amount >= (float) $rule->match_value
-                && (float) $transaction->amount <= (float) $rule->match_value_secondary,
+            'between' => $this->amountIsBetween($transaction, $rule),
             default => false,
         };
+    }
+
+    private function amountIsBetween(Transaction $transaction, ReconciliationRule $rule): bool
+    {
+        $lower = $this->compareRuleAmount((string) $transaction->amount, (string) $rule->match_value);
+        $upper = $this->compareRuleAmount((string) $transaction->amount, (string) $rule->match_value_secondary);
+
+        return $lower !== null && $upper !== null && $lower >= 0 && $upper <= 0;
+    }
+
+    private function compareRuleAmount(string $amount, string $value): ?int
+    {
+        $value = trim($value);
+        if (preg_match('/\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)\z/', $value) !== 1) {
+            return null;
+        }
+
+        // Keep every rule decimal: truncating to cents could match a sub-cent
+        // threshold against a transaction that does not actually satisfy it.
+        $scale = max(2, strlen(explode('.', $value, 2)[1] ?? ''));
+
+        return bccomp($amount, $value, $scale);
     }
 }
