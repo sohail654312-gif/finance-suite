@@ -24,8 +24,9 @@ jobs:
         env:
           COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ github.token }}"}}'
         run: >-
-          composer update league/csv spomky-labs/cbor-php spomky-labs/pki-framework
-          web-auth/cose-lib web-auth/webauthn-lib --with-dependencies --minimal-changes
+          composer update symfony/html-sanitizer:8.1.12 symfony/http-client:8.1.12
+          symfony/http-kernel:8.1.12 symfony/mailer:8.1.12 symfony/routing:8.1.12
+          symfony/serializer:8.1.12 --with-dependencies --minimal-changes
           --no-install --no-scripts --no-interaction --no-progress
       - name: Verify lock proposal without changing root constraints
         run: |
