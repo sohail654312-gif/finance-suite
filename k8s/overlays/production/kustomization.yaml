@@ -18,6 +18,7 @@ patches:
 
 configMapGenerator:
 - name: accounting-erp-config
+  namespace: accounting-erp-laravel
   behavior: merge
   literals:
   - APP_ENV=production

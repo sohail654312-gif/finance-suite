@@ -1,5 +1,9 @@
 # Current implementation status
 
+Current execution evidence is maintained in the [26 November completion checkpoint](AUTONOMOUS-COMPLETION-20261126.md).
+The capability inventory below records the initial review and must be read with
+the subsequent exact-commit CI results. No historical PASS grants release acceptance.
+
 Repository: `sohail654312-gif/finance-suite`. Starting SHA: `d41aa0211fc1ec54f57dd0d0d99b81412e386256`. Branch: `finance-suite/v1-completion`. Audit date: 7 October 2026 (Asia/Karachi).
 
 **V1 acceptance: NOT ACCEPTED.** This is a controlled initial audit and accounting correction stage, not a completed platform or exhaustive security certification.

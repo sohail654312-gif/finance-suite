@@ -1,0 +1,45 @@
+name: Release security lock proposal
+on:
+  push:
+    branches: [finance-suite/release-remediation-20261126]
+    paths: [.github/workflows/release-security-proposal.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - run: composer validate --strict
+      - name: Resolve only affected packages and necessary dependencies
+        env:
+          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ github.token }}"}}'
+        run: >-
+          composer update symfony/html-sanitizer:8.1.12 symfony/http-client:8.1.12
+          symfony/http-kernel:8.1.12 symfony/mailer:8.1.12 symfony/routing:8.1.12
+          symfony/serializer:8.1.12 --with-dependencies --minimal-changes
+          --no-install --no-scripts --no-interaction --no-progress
+      - name: Verify lock proposal without changing root constraints
+        run: |
+          composer validate --strict
+          composer audit --locked --format=json > security-audit.json
+          git diff --exit-code -- composer.json
+          git diff --check
+          sha256sum composer.lock > composer.lock.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-security-lock
+          path: |
+            composer.lock
+            composer.lock.sha256
+            security-audit.json
+          retention-days: 1

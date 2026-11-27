@@ -1,0 +1,224 @@
+name: Release remediation verification
+on:
+  push:
+    branches: [finance-suite/release-remediation-20261126]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Build the application image without publishing
+        run: docker build --tag finance-suite:verification .
+      - name: Validate existing deployment manifests without deployment
+        run: |
+          cp .env.testing .env
+          docker compose config --quiet
+          kubectl kustomize k8s/overlays/development > /dev/null
+          kubectl kustomize k8s/overlays/production > /dev/null
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci --no-fund --no-audit
+      - run: npm audit
+      - run: npm run build
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install and audit exact source
+        run: |
+          composer validate --strict
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Validate module manifests and foundation configuration
+        run: |
+          php artisan module:validate
+          php artisan foundation:doctor
+      - name: Pint for the repaired files
+        run: >-
+          vendor/bin/pint --test app/Models/Invoice.php app/Services/InvoicePostingService.php
+          app/Services/PaymentPostingService.php tests/Feature/SubledgerPostingBoundaryTest.php
+          tests/Postgres/SubledgerPostingConcurrencyTest.php tests/Feature/BankConnectionDisconnectBoundaryTest.php
+          tests/Unit/DeploymentContractTest.php
+          tests/Feature/PostingReversal/RecomputeStatusTest.php
+          tests/Feature/ReconciliationPrecisionBoundaryTest.php tests/Feature/AiAutomationTenantBoundaryTest.php
+          modules/accounting-copilot-api/src/Http/Controllers/CopilotRequestController.php
+          modules/accounting-automation-pack-api/src/Http/Controllers/AutomationRecipeController.php
+          app/Jobs/SyncPlaidTransactionsJob.php
+          app/Http/Controllers/Api/PlaidController.php app/Services/InventoryService.php
+          app/Services/SaasPremiumBillingService.php app/Services/DocumentService.php
+          app/Services/ReconciliationService.php app/Services/BankStatementImportService.php
+          app/Filament/App/Resources/BankStatements
+          app/Filament/App/Pages/ForecastComparison.php app/Filament/App/Pages/TeamNotificationSettings.php
+          app/Filament/App/Pages/ConsolidatedReports.php app/Services/MenuService.php
+          app/Console/Commands/SendPaymentReminders.php app/Models/ReminderSetting.php
+          app/Filament/App/Resources/ReminderSettings
+          app/Filament/App/Resources/Invoices/RelationManagers/DocumentsRelationManager.php
+          app/Filament/App/Resources/BankConnections/BankConnectionResource.php
+          app/Filament/App/Resources/BankConnections/Pages/ViewBankConnection.php
+          app/Filament/Admin/Resources/Users app/Listeners/SendApprovedOutboundPayment.php
+          tests/Feature/AdminUserManagementCoverageTest.php
+          tests/Feature/Api/PlaidControllerTest.php tests/Feature/Api/PlaidWebhookCoverageTest.php
+          tests/Feature/Api/RevolutCoverageIntegrityTest.php tests/Feature/PlaidEntryPointIntegrityTest.php
+          tests/Feature/PlaidSyncIntegrityCoverageTest.php
+          tests/Feature/Api/PlaidBalanceTest.php tests/Feature/Services/InventoryTenantScopingTest.php
+          tests/Feature/Approval/PendingApprovalsPageTest.php tests/Feature/SaasPremiumBillingTest.php
+          tests/Feature/BankConnectionResourceTest.php
+          tests/Feature/Document/DocumentServiceTest.php
+          tests/Feature/Document/InvoiceEvidencePageTest.php tests/Feature/BankStatementResourceIntegrityTest.php
+          tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
+          tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/Notifications/NotificationSettingsTest.php
+          tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/PublicNavigationTest.php
+          tests/Feature/PaymentReminderBoundaryTest.php
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+      - name: Verify read-only reconciliation preview and finance regressions
+        run: >-
+          php artisan test --compact
+          tests/Feature/BankStatementResourceIntegrityTest.php tests/Unit/Services/BankStatementImportServiceTest.php
+          tests/Feature/BankStatementReconciliationTest.php tests/Feature/Services/ReconciliationServiceTest.php
+          tests/Feature/Services/ReconciliationRuleTest.php tests/Unit/Services/ReconciliationServiceTest.php
+          tests/Feature/Forecast/ForecastTenancyTest.php tests/Feature/Notifications/NotificationSettingsTest.php
+          tests/Feature/Consolidation/ConsolidatedReportsTest.php tests/Feature/PublicNavigationTest.php
+          tests/Feature/PaymentReminderBoundaryTest.php
+          tests/Feature/SubledgerPostingBoundaryTest.php tests/Feature/InvoicePosting
+          tests/Feature/PaymentPosting tests/Feature/BankConnectionDisconnectBoundaryTest.php
+          tests/Feature/PostingReversal
+          tests/Feature/ReconciliationPrecisionBoundaryTest.php tests/Feature/AiAutomationTenantBoundaryTest.php
+          tests/Unit/DeploymentContractTest.php
+      - name: Enforce locked dependency audit
+        if: always()
+        run: composer audit --locked
+  full:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: xdebug
+      - name: Install and audit exact source
+        run: |
+          composer validate --strict
+          composer audit --locked
+          cp .env.testing .env
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+          php artisan key:generate
+      - name: Full repository formatting gate
+        run: vendor/bin/pint --test
+      - name: Full tests and 100% release coverage gate
+        id: full_tests
+        if: always() && !cancelled()
+        run: php artisan test --coverage --min=100 --coverage-clover=coverage.xml --log-junit=junit.xml
+      - name: Independent host coverage verification
+        if: always() && steps.full_tests.outcome != 'skipped'
+        run: php scripts/verify-host-coverage.php coverage.xml
+      - name: Preserve test and Clover reports
+        if: always() && hashFiles('coverage.xml') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-remediation-${{ github.sha }}
+          path: |
+            coverage.xml
+            junit.xml
+          retention-days: 1
+  postgres-ledger:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: finance_suite_test
+          POSTGRES_USER: finance_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_DATABASE: finance_suite_test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: finance_test
+      DB_PASSWORD: synthetic-ci-only
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_pgsql, bcmath, opcache, zip, gd, intl, dom, curl, pcntl, posix, sockets
+          coverage: none
+      - name: Install and audit exact lock
+        run: |
+          composer validate --strict
+          composer audit --locked
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          git restore --source=HEAD --worktree -- modules themes
+      - name: Prepare synthetic application
+        run: |
+          cp .env.testing .env
+          php artisan key:generate
+      - name: Prove competing PostgreSQL posting and reversal requests
+        run: vendor/bin/pest --compact tests/Postgres/LegacyJournalConcurrencyTest.php
+      - name: Verify document versioning on PostgreSQL
+        run: vendor/bin/pest --compact tests/Postgres/DocumentVersioningTest.php
+
+      - name: Verify competing subledger posting requests
+        run: vendor/bin/pest --compact tests/Postgres/SubledgerPostingConcurrencyTest.php
+      - name: Prove isolated PostgreSQL backup and restore
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U finance_test -d finance_suite_test --format=custom > "$RUNNER_TEMP/finance-suite.dump"
+          docker exec "$POSTGRES_CONTAINER" createdb -U finance_test finance_suite_restore
+          docker exec -i "$POSTGRES_CONTAINER" pg_restore -U finance_test -d finance_suite_restore --exit-on-error < "$RUNNER_TEMP/finance-suite.dump"
+          for table in users teams accounts invoices payments journal_entries journal_entry_lines migrations; do
+            query="SELECT md5(COALESCE(string_agg(row_to_json(t)::text, '' ORDER BY row_to_json(t)::text), '')) FROM $table t"
+            before=$(docker exec "$POSTGRES_CONTAINER" psql -U finance_test -d finance_suite_test -Atc "$query")
+            after=$(docker exec "$POSTGRES_CONTAINER" psql -U finance_test -d finance_suite_restore -Atc "$query")
+            test "$before" = "$after"
+            echo "Restored $table: exact persisted rows agree"
+          done

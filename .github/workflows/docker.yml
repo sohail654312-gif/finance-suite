@@ -54,6 +54,9 @@ jobs:
           {
             echo 'tags<<FINANCE_IMAGE_TAGS'
             echo "$image:$tag"
+            if [ "$REF_TYPE" = "tag" ]; then
+              echo "$image:$REF_NAME"
+            fi
             echo "$image:sha-${revision:0:12}"
             if [ "$REF_TYPE" = "branch" ] && [ "$REF_NAME" = "main" ]; then
               echo "$image:latest"

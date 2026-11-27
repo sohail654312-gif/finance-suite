@@ -1,0 +1,139 @@
+{
+  "updated": "2026-11-27",
+  "scope": "Finance Suite only; no CIGO, Business OS, MVP or X repository changes",
+  "last_verified_source": "8003c20aca8fedae50ea9bfb14a09a6ba2338e1a",
+  "last_full_run": "https://github.com/sohail654312-gif/finance-suite/actions/runs/45768675507",
+  "baseline": {
+    "host_passed": 1857,
+    "assertions": 8055,
+    "failures": 0,
+    "skipped": 0,
+    "host_covered": 13182,
+    "host_executable": 14784,
+    "host_coverage_percent": 89.16396103896103,
+    "required_host_coverage_percent": 100,
+    "postgres_passed": 8
+  },
+  "canonical_acceptance": [
+    "FINANCE-SUITE-V1-ACCEPTANCE.md",
+    "FINANCIAL-LIFECYCLE-EVIDENCE.md"
+  ],
+  "release_accepted": false,
+  "items": [
+    {
+      "id": "P0-DEPS-20261127",
+      "requirement": "Resolve 12 fresh Symfony advisories without exceptions",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "existing": "Seven Symfony packages patched to 8.1.12, including required http-foundation companion; root constraints unchanged; current audit zero advisories",
+      "remaining": "Exact-source compatibility and complete mandatory verification",
+      "changed_files": [
+        "composer.lock",
+        ".github/workflows/release-security-proposal.yml"
+      ],
+      "source_sha": null,
+      "evidence": "Linux proposal run 45934915524 passed; artifact 15170731054 hash verified; local strict metadata and locked audit pass",
+      "security_classification": "release blocking",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P0-RECON-PRECISION",
+      "requirement": "Exact financial reconciliation calculations",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "existing": "Reconciliation service and fixtures; floating-point money calculations remain",
+      "remaining": "Run 26 new behavioral cases and all existing reconciliation regressions; preserve public result keys",
+      "changed_files": [
+        "app/Services/ReconciliationService.php",
+        "tests/Feature/ReconciliationPrecisionBoundaryTest.php"
+      ],
+      "evidence": "Syntax and Pint pass; runtime CI pending",
+      "security_classification": "financial integrity",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P0-HMRC-HISTORY",
+      "requirement": "Persisted-state and tenant guards on locked submission details",
+      "status": "IN_PROGRESS",
+      "existing": "isEditable helpers do not enforce ordinary writes/deletion",
+      "remaining": "Guard models and prove locked/stale/foreign denials; no fabricated statutory support",
+      "changed_files": [],
+      "evidence": null,
+      "security_classification": "financial history integrity",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P0-AI-AUTOMATION-AUTHORITY",
+      "requirement": "Persisted tenant membership and business role checks",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "existing": "Copilot and automation controllers trust cached selected-team identifiers",
+      "remaining": "Run actual authenticated API positive and tenant/role/revocation regressions",
+      "changed_files": [
+        "modules/accounting-copilot-api/src/Http/Controllers/CopilotRequestController.php",
+        "modules/accounting-automation-pack-api/src/Http/Controllers/AutomationRecipeController.php",
+        "tests/Feature/AiAutomationTenantBoundaryTest.php"
+      ],
+      "evidence": "Syntax and Pint pass; runtime CI pending",
+      "security_classification": "tenant confidentiality and authority",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P0-HOST-COVERAGE",
+      "requirement": "Existing 100% host gate",
+      "status": "IN_PROGRESS",
+      "existing": "1,602 uncovered host executable lines in verified baseline",
+      "remaining": "Meaningful behavioral coverage; no exclusions or lowered threshold",
+      "changed_files": [],
+      "evidence": "Preserved Clover/JUnit in previous task outputs",
+      "security_classification": "mandatory release gate",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P0-ACCOUNTING-ACCEPTANCE",
+      "requirement": "Canonical 18 accounting gates and complete 32-stage lifecycle",
+      "status": "IN_PROGRESS",
+      "existing": "Synthetic ledger and selected native operations verified; complete controls not accepted",
+      "remaining": "Native AR/AP, inventory, tax/FX, reports, year-end and complete evidence reconciliation",
+      "changed_files": [],
+      "evidence": "Canonical acceptance documents",
+      "security_classification": "mandatory release gate",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "P1-AI-ACCOUNTANT",
+      "requirement": "Authorized English, Urdu and Roman Urdu financial conversation",
+      "status": "NOT_STARTED",
+      "existing": "Copilot request recorder; no verified conversational inference or authoritative financial tool registry",
+      "remaining": "Inventory existing components, build deterministic read-only tools and controlled drafts after P0",
+      "changed_files": [],
+      "evidence": "Read-only source inventory in progress",
+      "security_classification": "requires tenant, role, approval and prompt-injection boundaries",
+      "external_dependency": null,
+      "owner_action": null
+    },
+    {
+      "id": "OPS-DEPLOYMENT",
+      "requirement": "Authorized production target and independently reviewed operations",
+      "status": "BLOCKED_EXTERNAL",
+      "existing": "Container/manifests and isolated PostgreSQL restore verified; no repository secrets or configured environments",
+      "remaining": "After engineering gates, configure existing authorized hosting, TLS, protected environment and supported recovery objectives",
+      "changed_files": [],
+      "evidence": "27 November repository metadata; prior CI",
+      "security_classification": "production release boundary",
+      "external_dependency": "Authorized infrastructure and independent production review",
+      "owner_action": "Required only when software is eligible; no credential request now"
+    }
+  ],
+  "execution_note": "Parallel workers encountered an account usage limit; no paid upgrade was used. Completed reconciliation and API patches were reviewed by parent. HMRC worker resumed after the suggested reset and is completing persisted-history guards and real-lifecycle fixtures.",
+  "current_security_audit": {
+    "date": "2026-11-27",
+    "advisories": 0,
+    "root_constraints_changed": false,
+    "proposal_artifact": 15170731054,
+    "artifact_sha256": "a0ed4e2f5a9796831f5e9f128286e5c03e759bff98058a0b4557120f099929b4"
+  }
+}

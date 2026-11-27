@@ -1,5 +1,11 @@
 # Release checklist
 
+26 November update: [current completion checkpoint](AUTONOMOUS-COMPLETION-20261126.md).
+The tables below retain historical October evidence; they are not current-commit
+results. PR #30 carries the new isolated repair. Release publication now requires
+the reusable strict verification workflow, including the independent 100% coverage
+check, PostgreSQL, security audits, frontend and container build.
+
 **Production acceptance withheld. Do not merge.** PR #17 remains DRAFT. Preview must wait for a verified accounting checkpoint and a tested isolated demo boundary.
 
 Evidence from 7 October 2026: focused/Install/Docker at 23ef827; completed full verification at 53d2a7f. New schema repairs and an explicit Estimate customer relationship type remain under fresh verification. Exact job links/counts are in [the review baseline](REVIEW-REPAIR-BASELINE.md).
